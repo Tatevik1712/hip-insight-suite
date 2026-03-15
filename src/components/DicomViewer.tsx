@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import hipXray from "@/assets/hip-xray.jpg";
 import { Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw, Move } from "lucide-react";
+import type { ImageFilters } from "@/components/ImageAdjustments";
 
 interface DicomViewerProps {
   showOverlay: boolean;
@@ -8,6 +9,7 @@ interface DicomViewerProps {
   studentMode: boolean;
   showStudentCheck: boolean;
   customImage?: string | null;
+  filters: ImageFilters;
 }
 
 const KEY_POINTS = [
@@ -19,7 +21,7 @@ const KEY_POINTS = [
   { id: "acetab_r", x: 70, y: 38, label: "Край вертл. (R)" },
 ];
 
-const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentCheck, customImage }: DicomViewerProps) => {
+const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentCheck, customImage, filters }: DicomViewerProps) => {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -27,6 +29,8 @@ const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentChe
   const containerRef = useRef<HTMLDivElement>(null);
 
   const imageSrc = customImage || hipXray;
+
+  const cssFilter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%) ${filters.invert ? "invert(1)" : ""}`;
 
   const handleZoomIn = () => setZoom(z => Math.min(z + 0.25, 3));
   const handleZoomOut = () => setZoom(z => Math.max(z - 0.25, 0.5));
@@ -49,7 +53,6 @@ const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentChe
 
   const handleMouseUp = useCallback(() => setIsPanning(false), []);
 
-  // Handle wheel zoom
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
@@ -132,6 +135,7 @@ const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentChe
             alt="Рентгенограмма тазобедренных суставов"
             className="max-h-[calc(100vh-8rem)] w-auto object-contain pointer-events-none"
             draggable={false}
+            style={{ filter: cssFilter, transition: "filter 0.2s ease" }}
           />
 
           {/* SVG overlay */}
@@ -141,40 +145,28 @@ const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentChe
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
             >
-              {/* Hilgenreiner line */}
               <line x1="15" y1="42" x2="85" y2="42" className="line-hilgenreiner" strokeWidth="0.3" strokeDasharray="1,0.5" />
               <text x="87" y="42" fill="hsl(174, 72%, 56%)" fontSize="2.2" fontFamily="Inter">H</text>
-
-              {/* Perkins lines */}
               <line x1="30" y1="30" x2="30" y2="60" className="line-perkins" strokeWidth="0.3" strokeDasharray="0.8,0.4" />
               <line x1="70" y1="30" x2="70" y2="60" className="line-perkins" strokeWidth="0.3" strokeDasharray="0.8,0.4" />
               <text x="31" y="31" fill="hsl(38, 92%, 50%)" fontSize="2.2" fontFamily="Inter">P</text>
-
-              {/* Acetabular angle lines */}
               <line x1="38" y1="42" x2="30" y2="38" className="line-acetabular" strokeWidth="0.4" />
               <line x1="62" y1="42" x2="70" y2="38" className="line-acetabular" strokeWidth="0.4" />
-
-              {/* Angle arcs */}
               <path d="M 35 42 A 3 3 0 0 1 32 40" fill="none" stroke="hsl(211, 100%, 50%)" strokeWidth="0.25" />
               <text x="32" y="40.5" fill="hsl(211, 100%, 50%)" fontSize="1.8" fontFamily="Inter">28°</text>
               <path d="M 65 42 A 3 3 0 0 0 68 40" fill="none" stroke="hsl(211, 100%, 50%)" strokeWidth="0.25" />
               <text x="65" y="40.5" fill="hsl(211, 100%, 50%)" fontSize="1.8" fontFamily="Inter">22°</text>
-
-              {/* Key points */}
               {KEY_POINTS.map(pt => (
                 <g key={pt.id}>
                   <circle cx={pt.x} cy={pt.y} r="0.8" fill="hsl(211, 100%, 50%)" opacity="0.9" />
                   <circle cx={pt.x} cy={pt.y} r="1.5" fill="none" stroke="hsl(211, 100%, 50%)" strokeWidth="0.15" opacity="0.5" className="animate-pulse-soft" />
                 </g>
               ))}
-
-              {/* Shenton's line (curved) */}
               <path d="M 28 58 Q 33 50 38 48" fill="none" stroke="hsl(142, 71%, 45%)" strokeWidth="0.3" strokeDasharray="0.6,0.3" />
               <path d="M 72 58 Q 67 50 62 48" fill="none" stroke="hsl(142, 71%, 45%)" strokeWidth="0.3" strokeDasharray="0.6,0.3" />
             </svg>
           )}
 
-          {/* Student mode: reference lines shown on check */}
           {studentMode && showStudentCheck && (
             <svg
               className="absolute inset-0 w-full h-full animate-fade-in"

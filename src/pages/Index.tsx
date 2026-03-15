@@ -6,7 +6,11 @@ import DiagnosisCard from "@/components/DiagnosisCard";
 import ModeToggle from "@/components/ModeToggle";
 import StudentPanel from "@/components/StudentPanel";
 import UploadPanel from "@/components/UploadPanel";
+import ImageAdjustments, { type ImageFilters } from "@/components/ImageAdjustments";
+import SendToAIButton from "@/components/SendToAIButton";
 import { Activity, Images } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import hipXray from "@/assets/hip-xray.jpg";
 
 const Index = () => {
   const [showOverlay, setShowOverlay] = useState(true);
@@ -14,9 +18,28 @@ const Index = () => {
   const [studentChecked, setStudentChecked] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const imageFromQuery = searchParams.get("image");
   const [customImage, setCustomImage] = useState<string | null>(imageFromQuery);
+  const [filters, setFilters] = useState<ImageFilters>({ brightness: 100, contrast: 100, invert: false });
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const currentImageSrc = customImage || hipXray;
+
+  const handleSendToAI = (processedDataUrl: string) => {
+    setAiLoading(true);
+    // Simulate — user will integrate their own model here
+    toast({
+      title: "Изображение готово",
+      description: "Обработанный снимок подготовлен для отправки в вашу модель ИИ. Data URL доступен в консоли.",
+    });
+    console.log("[HipDx AI] Processed image data URL length:", processedDataUrl.length);
+    console.log("[HipDx AI] Use this data URL to send to your AI model.");
+    // Expose the event so external code can hook into it
+    window.dispatchEvent(new CustomEvent("hipdx:image-ready", { detail: { dataUrl: processedDataUrl } }));
+    setAiLoading(false);
+  };
 
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">
@@ -54,6 +77,7 @@ const Index = () => {
             studentMode={studentMode}
             showStudentCheck={studentChecked}
             customImage={customImage}
+            filters={filters}
           />
         </div>
 
@@ -62,6 +86,15 @@ const Index = () => {
           <ModeToggle studentMode={studentMode} onToggle={() => { setStudentMode(m => !m); setStudentChecked(false); }} />
 
           <UploadPanel onUploaded={(url) => setCustomImage(url)} />
+
+          <ImageAdjustments filters={filters} onChange={setFilters} />
+
+          <SendToAIButton
+            imageSrc={currentImageSrc}
+            filters={filters}
+            loading={aiLoading}
+            onSend={handleSendToAI}
+          />
 
           {studentMode ? (
             <StudentPanel
