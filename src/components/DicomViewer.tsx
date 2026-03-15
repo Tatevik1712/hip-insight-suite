@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import hipXray from "@/assets/hip-xray.jpg";
 import { Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw, Move } from "lucide-react";
 
@@ -7,6 +7,7 @@ interface DicomViewerProps {
   onToggleOverlay: () => void;
   studentMode: boolean;
   showStudentCheck: boolean;
+  customImage?: string | null;
 }
 
 const KEY_POINTS = [
@@ -18,32 +19,49 @@ const KEY_POINTS = [
   { id: "acetab_r", x: 70, y: 38, label: "Край вертл. (R)" },
 ];
 
-const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentCheck }: DicomViewerProps) => {
+const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentCheck, customImage }: DicomViewerProps) => {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const imageSrc = customImage || hipXray;
+
   const handleZoomIn = () => setZoom(z => Math.min(z + 0.25, 3));
   const handleZoomOut = () => setZoom(z => Math.max(z - 0.25, 0.5));
   const handleReset = () => { setZoom(1); setPan({ x: 0, y: 0 }); };
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
     setIsPanning(true);
     lastPos.current = { x: e.clientX, y: e.clientY };
   }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isPanning) return;
-    setPan(p => ({
-      x: p.x + (e.clientX - lastPos.current.x),
-      y: p.y + (e.clientY - lastPos.current.y),
-    }));
+    e.preventDefault();
+    const dx = e.clientX - lastPos.current.x;
+    const dy = e.clientY - lastPos.current.y;
+    setPan(p => ({ x: p.x + dx, y: p.y + dy }));
     lastPos.current = { x: e.clientX, y: e.clientY };
   }, [isPanning]);
 
   const handleMouseUp = useCallback(() => setIsPanning(false), []);
+
+  // Handle wheel zoom
+  const handleWheel = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setZoom(z => Math.min(Math.max(z + delta, 0.5), 3));
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    return () => container.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
 
   const shouldShowLines = showOverlay && (!studentMode || showStudentCheck);
 
@@ -94,20 +112,23 @@ const DicomViewer = ({ showOverlay, onToggleOverlay, studentMode, showStudentChe
       {/* Image + SVG overlay */}
       <div
         ref={containerRef}
-        className="w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
+        className="w-full h-full flex items-center justify-center select-none"
+        style={{ cursor: isPanning ? "grabbing" : "grab" }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
       >
         <div
-          className="relative transition-transform duration-150"
+          className="relative"
           style={{
-            transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transformOrigin: "center center",
+            transition: isPanning ? "none" : "transform 0.15s ease-out",
           }}
         >
           <img
-            src={hipXray}
+            src={imageSrc}
             alt="Рентгенограмма тазобедренных суставов"
             className="max-h-[calc(100vh-8rem)] w-auto object-contain pointer-events-none"
             draggable={false}

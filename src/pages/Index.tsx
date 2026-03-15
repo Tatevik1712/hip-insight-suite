@@ -1,15 +1,22 @@
 import { useState } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import DicomViewer from "@/components/DicomViewer";
 import ParametersDashboard from "@/components/ParametersDashboard";
 import DiagnosisCard from "@/components/DiagnosisCard";
 import ModeToggle from "@/components/ModeToggle";
 import StudentPanel from "@/components/StudentPanel";
-import { Activity } from "lucide-react";
+import UploadPanel from "@/components/UploadPanel";
+import { Activity, Images } from "lucide-react";
 
 const Index = () => {
   const [showOverlay, setShowOverlay] = useState(true);
   const [studentMode, setStudentMode] = useState(false);
   const [studentChecked, setStudentChecked] = useState(false);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  const imageFromQuery = searchParams.get("image");
+  const [customImage, setCustomImage] = useState<string | null>(imageFromQuery);
 
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">
@@ -25,6 +32,13 @@ const Index = () => {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate("/gallery")}
+            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Images className="w-4 h-4" />
+            Галерея
+          </button>
           <span className="text-xs text-muted-foreground font-mono">ID: DDH-2024-0847</span>
           <div className="w-2 h-2 rounded-full bg-medical-green animate-pulse-soft" />
         </div>
@@ -39,12 +53,15 @@ const Index = () => {
             onToggleOverlay={() => setShowOverlay(o => !o)}
             studentMode={studentMode}
             showStudentCheck={studentChecked}
+            customImage={customImage}
           />
         </div>
 
         {/* Sidebar */}
         <aside className="w-[360px] border-l border-border bg-card overflow-y-auto p-4 space-y-4 shrink-0">
           <ModeToggle studentMode={studentMode} onToggle={() => { setStudentMode(m => !m); setStudentChecked(false); }} />
+
+          <UploadPanel onUploaded={(url) => setCustomImage(url)} />
 
           {studentMode ? (
             <StudentPanel
