@@ -1,113 +1,56 @@
-import { useState, useRef } from "react";
-import { Upload, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
+/**
+ * @file components/UploadPanel.tsx
+ * @description Панель загрузки снимка для студенческого режима.
+ *
+ * Supabase удалён — файл читается локально через FileReader
+ * и передаётся в родитель через onUploaded(dataUrl).
+ */
+import { useRef } from "react";
+import { Upload } from "lucide-react";
 
-interface UploadPanelProps {
+interface Props {
   onUploaded: (imageUrl: string) => void;
 }
 
-const UploadPanel = ({ onUploaded }: UploadPanelProps) => {
-  const [patientId, setPatientId] = useState("");
-  const [diagnosis, setDiagnosis] = useState("Не определен");
-  const [notes, setNotes] = useState("");
-  const [uploading, setUploading] = useState(false);
+const UploadPanel = ({ onUploaded }: Props) => {
   const fileRef = useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
 
-  const handleUpload = async () => {
-    const file = fileRef.current?.files?.[0];
-    if (!file || !patientId.trim()) {
-      toast({ title: "Ошибка", description: "Выберите файл и укажите ID пациента", variant: "destructive" });
-      return;
-    }
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    setUploading(true);
-    try {
-      const ext = file.name.split(".").pop();
-      const path = `${Date.now()}_${patientId}.${ext}`;
-
-      const { error: storageError } = await supabase.storage
-        .from("xray-images")
-        .upload(path, file, { contentType: file.type });
-
-      if (storageError) throw storageError;
-
-      const { data: urlData } = supabase.storage.from("xray-images").getPublicUrl(path);
-      const imageUrl = urlData.publicUrl;
-
-      const { error: dbError } = await supabase.from("xray_images").insert({
-        patient_id: patientId.trim(),
-        diagnosis,
-        image_url: imageUrl,
-        file_name: file.name,
-        notes: notes.trim() || null,
-      });
-
-      if (dbError) throw dbError;
-
-      toast({ title: "Успешно", description: "Снимок загружен и сохранён" });
-      onUploaded(imageUrl);
-      setPatientId("");
-      setNotes("");
-      if (fileRef.current) fileRef.current.value = "";
-    } catch (err: any) {
-      toast({ title: "Ошибка загрузки", description: err.message, variant: "destructive" });
-    } finally {
-      setUploading(false);
-    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (dataUrl) onUploaded(dataUrl);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   return (
-    <div className="glass-panel rounded-lg p-4 space-y-3 animate-fade-in">
-      <div className="flex items-center gap-2 mb-1">
+    <div className="glass-panel rounded-lg p-4">
+      <div className="flex items-center gap-2 mb-3">
         <Upload className="w-4 h-4 text-medical-blue" />
         <h3 className="text-sm font-semibold text-foreground">Загрузить снимок</h3>
       </div>
-
-      <Input
-        placeholder="ID пациента *"
-        value={patientId}
-        onChange={(e) => setPatientId(e.target.value)}
-        className="h-8 text-xs"
-      />
-
-      <select
-        value={diagnosis}
-        onChange={(e) => setDiagnosis(e.target.value)}
-        className="w-full h-8 rounded-md border border-input bg-background px-3 text-xs text-foreground"
+      <button
+        onClick={() => fileRef.current?.click()}
+        className="w-full flex items-center justify-center gap-2 rounded-lg border-2
+                   border-dashed border-border bg-secondary/40 px-4 py-4 text-xs
+                   font-medium text-muted-foreground hover:border-primary/50
+                   hover:text-primary hover:bg-primary/5 transition-all"
       >
-        <option value="Не определен">Не определен</option>
-        <option value="Норма">Норма</option>
-        <option value="Пограничное состояние">Пограничное состояние</option>
-        <option value="Дисплазия">Дисплазия</option>
-      </select>
-
-      <Input
-        placeholder="Заметки (необязательно)"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        className="h-8 text-xs"
-      />
-
+        <Upload className="w-4 h-4" />
+        Выбрать файл · DICOM, PNG, JPG
+      </button>
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
-        className="w-full text-xs file:mr-2 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary-foreground hover:file:bg-primary/90"
+        accept="image/*,.dcm,.dicom"
+        className="hidden"
+        onChange={handleChange}
       />
-
-      <Button
-        onClick={handleUpload}
-        disabled={uploading}
-        size="sm"
-        className="w-full text-xs"
-      >
-        {uploading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
-        {uploading ? "Загрузка..." : "Загрузить"}
-      </Button>
     </div>
   );
 };

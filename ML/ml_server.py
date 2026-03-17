@@ -1,84 +1,125 @@
-from flask import Flask, request, send_file, jsonify
+"""
+ml_server.py
+════════════
+Flask ML-сервер. Принимает base64 PNG, возвращает:
+  - predict:    координаты 6 анатомических точек
+  - angle:      ацетабулярный угол (градусы)
+  - class:      0=норма, 1=патология
+  - confidence: уверенность модели (0-100%)
+"""
+
+from flask import Flask, request, jsonify
 import numpy as np
 from PIL import Image
 from tensorflow.keras.models import load_model
 import base64
 import io
 import gc
-from sklearn.preprocessing import StandardScaler
+import math
 import joblib
 
 app = Flask(__name__)
 
 
-@app.route('/predict',methods=["POST"])
+# ─── Расчёты ──────────────────────────────────────────────────────────────────
+
+def calc_acetabular_angle(y: list) -> float:
+    """
+    Ацетабулярный угол из предсказанных координат.
+    Точки: y[0],y[1]=H1  y[2],y[3]=H2  y[4],y[5]=A1 ...
+    """
+    h1 = (y[0], y[1])
+    a1 = (y[4], y[5])
+    dx = a1[0] - h1[0]
+    dy = a1[1] - h1[1]
+    mag = math.sqrt(dx*dx + dy*dy)
+    if mag == 0:
+        return 0.0
+    angle = math.degrees(math.acos(max(-1.0, min(1.0, dx / mag))))
+    if angle > 90:
+        angle = 180 - angle
+    return abs(angle)
+
+
+def classify(angle: float) -> tuple:
+    """
+    Бинарная классификация: 1=патология, 0=норма.
+    Порог 30° — клинически обоснованный для любого возраста.
+    Возвращает (class, confidence_percent).
+    """
+    threshold  = 30.0
+    distance   = abs(angle - threshold)
+    confidence = min(99, int(50 + distance * 3.3))
+    cls        = 1 if angle > threshold else 0
+    return cls, confidence
+
+
+# ─── Эндпоинт ─────────────────────────────────────────────────────────────────
+
+@app.route('/predict', methods=["POST"])
 def predict():
-    '''
-    Принимается строка base64, описывающая картинку. На выходе - точки интереса. В response json с полем predict, в нём такой словарь
-     data = {'1_point':{'x':y[0],'y':y[1]},
-                '2_point':{'x':y[2],'y':y[3]},
-                '3_point':{'x':y[4],'y':y[5]},
-                '4_point':{'x':y[6],'y':y[7]},
-                '5_point':{'x':y[8],'y':y[9]},
-                '6_point':{'x':y[10],'y':y[11],}
-        }
-    '''
+    """
+    Принимает JSON { input: "<base64 PNG>" }.
+    Возвращает:
+    {
+      predict: { 1_point: {x, y}, ... 6_point: {x, y} },
+      angle:      <float>,
+      class:      <0|1>,
+      confidence: <int 0-100>
+    }
+    """
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'ml_server_error': 'Нет данных'}), 400
 
-        # Проверяем
-        if ((not data) ):
-            print('why')
-            return jsonify({'ml_server_error': 'Файл не найден'}), 400
-        
-    
-          
-        base64_string = base64.b64decode(data['input']) #base64 - строка
-        bytes_io = io.BytesIO(base64_string)
-        # Перемещение в начало потока BytesIO
+        # Декодируем base64 → PIL Image → numpy
+        base64_bytes = base64.b64decode(data['input'])
+        bytes_io     = io.BytesIO(base64_bytes)
         bytes_io.seek(0)
-        # Преобразование BytesIO в объект, похожий на файл
-        file = io.BufferedReader(bytes_io)
-        image = Image.open(file)
-        image = image.resize((224,224))
-        image_array = np.array(image) #превращаем строку в массив
+        image        = Image.open(io.BufferedReader(bytes_io))
+        image        = image.resize((224, 224))
+        image_array  = np.array(image)
+        image_array  = np.expand_dims(image_array, axis=0)
 
-       
+        # Предсказание точек
+        X            = pooler.predict(image_array)          # вектор признаков
+        y_pred_scaled = model.predict(X)                    # нормализованные координаты
+        Y            = scaler_y.inverse_transform(y_pred_scaled)[0]  # реальные координаты
 
-        image_array = np.expand_dims(image_array, axis=0) #добавим размерность
+        # Округляем до целых
+        Y = [int(round(v)) for v in Y]
 
-        X = pooler.predict(image_array) #получим вектор
-        y_pred_scaled = model.predict(X) #нормализованные координаты
-        Y = scaler_y.inverse_transform(y_pred_scaled)[0]#истинные координаты точек
-        
-        for i in range(0,len(Y)):
-            Y[i] = round(Y[i])
-        Y = Y.astype(int)
-
-        y = []
-
-        for i in Y:
-            y.append(str(i))
-
-        data = {'1_point':{'x':y[0],'y':y[1]},
-                '2_point':{'x':y[2],'y':y[3]},
-                '3_point':{'x':y[4],'y':y[5]},
-                '4_point':{'x':y[6],'y':y[7]},
-                '5_point':{'x':y[8],'y':y[9]},
-                '6_point':{'x':y[10],'y':y[11],}
+        # Формируем словарь точек
+        points_dict = {
+            '1_point': {'x': str(Y[0]),  'y': str(Y[1])},
+            '2_point': {'x': str(Y[2]),  'y': str(Y[3])},
+            '3_point': {'x': str(Y[4]),  'y': str(Y[5])},
+            '4_point': {'x': str(Y[6]),  'y': str(Y[7])},
+            '5_point': {'x': str(Y[8]),  'y': str(Y[9])},
+            '6_point': {'x': str(Y[10]), 'y': str(Y[11])},
         }
-        
-        gc.collect()        # на всякий случай вызвать сборку мусора
-        return jsonify({"predict":data})
-    
+
+        # Расчёт угла и классификация
+        angle      = calc_acetabular_angle(Y)
+        cls, conf  = classify(angle)
+
+        gc.collect()
+
+        return jsonify({
+            "predict":    points_dict,
+            "angle":      round(angle, 2),
+            "class":      cls,
+            "confidence": conf,
+        })
+
     except Exception as e:
         print(str(e))
         return jsonify({'ml_server_error': str(e)}), 500
 
+
 if __name__ == '__main__':
-    model = joblib.load('best_forest.pkl')
-    pooler = load_model('pooler.h5')
+    model    = joblib.load('best_forest.pkl')
+    pooler   = load_model('pooler.h5')
     scaler_y = joblib.load('scaler_y.pkl')
     app.run(debug=True, port=5000)
-
-

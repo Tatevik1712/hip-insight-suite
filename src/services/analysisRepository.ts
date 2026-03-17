@@ -1,18 +1,17 @@
 /**
  * @file services/analysisRepository.ts
  * @layer Service
- * @description Репозиторий для сохранения данных в Supabase.
+ * @description Репозиторий для сохранения результатов анализа.
  *
- * Сохраняет только поля которые гарантированно есть в таблице:
- * id, patient_id, diagnosis, image_url, file_name, notes,
- * full_name, birth_date, doctor
+ * Отправляет данные на Flask-бэкенд (dicom_to_png.py, порт 5001)
+ * который сохраняет их в локальный PostgreSQL.
  *
- * Результаты анализа (angle, distance_h и др.) сохраняются отдельным
- * UPDATE после того как Supabase обновит кэш схемы.
+ * Эндпоинт: POST http://127.0.0.1:5001/save
  */
 
-import { supabase } from "@/integrations/supabase/client";
 import type { AnalysisResult, Gender } from "@/types";
+
+const BACKEND_URL = "http://127.0.0.1:5001";
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -36,68 +35,80 @@ export interface SaveAnalysisPayload {
 
 export interface SaveAnalysisResult {
   success: boolean;
-  id?:     string;
+  id?:     number;
   error?:  string;
 }
 
-// Маппинг диагнозов из формы в человекочитаемый вид для БД
+// Маппинг диагнозов из формы в человекочитаемый вид
 const DIAGNOSIS_MAP: Record<string, string> = {
   norm:       "Норма",
   borderline: "Пограничное состояние",
   grade1:     "Дисплазия I степени",
   grade2:     "Дисплазия II степени",
   grade3:     "Дисплазия III степени",
-  pending:    "Не определен",
 };
 
+// ─── Репозиторий ──────────────────────────────────────────────────────────────
+
 /**
- * Сохраняет запись в Supabase.
- * Использует только колонки из оригинальной схемы таблицы
- * чтобы избежать ошибки кэша PostgREST.
+ * Сохраняет данные пациента и результаты анализа через Flask → PostgreSQL.
  */
 export async function saveAnalysis(
   payload: SaveAnalysisPayload
 ): Promise<SaveAnalysisResult> {
-  const { patient, result, imageFile } = payload;
+  const { patient, ageMonths, gender, result, imageFile } = payload;
 
-  // Только оригинальные колонки таблицы — гарантированно в кэше
-  const record = {
-    patient_id: patient.patientId || `DDH-${Date.now()}`,
-    file_name:  imageFile?.name   ?? "xray.png",
-    image_url:  imageFile?.name   ?? "pending",
-    diagnosis:  DIAGNOSIS_MAP[patient.diagnosis] ?? patient.diagnosis ?? "Не определен",
-    full_name:  patient.fullName  || null,
-    birth_date: patient.birthDate || null,
-    doctor:     patient.doctor    || null,
-    // Упаковываем результаты анализа и доп. данные в поле notes как JSON
-    // чтобы не потерять данные пока кэш не обновится
-    notes: JSON.stringify({
-      userNotes:      patient.notes || null,
-      angle:          result?.angle                ?? null,
-      distance_h:     result?.distances.h          ?? null,
-      distance_d:     result?.distances.d          ?? null,
-      perkins:        result?.perkins              ?? null,
-      dysplasia_level: result?.dysplasia.level     ?? null,
-      dysplasia_stage: result?.dysplasia.stage     ?? null,
-    }),
+  const body = {
+    // Данные пациента
+    patient_id:      patient.patientId || `DDH-${Date.now()}`,
+    full_name:       patient.fullName  || null,
+    birth_date:      patient.birthDate || null,
+    doctor:          patient.doctor    || null,
+    diagnosis:       DIAGNOSIS_MAP[patient.diagnosis] ?? patient.diagnosis ?? "Не определен",
+    notes:           patient.notes     || null,
+
+    // Мета снимка
+    file_name:       imageFile?.name   ?? "xray.png",
+
+    // Параметры анализа (вводит врач)
+    age_months:      ageMonths,
+    gender:          gender,
+
+    // Результаты ИИ
+    angle:           result ? parseFloat(result.angle.toFixed(2))       : null,
+    distance_h:      result ? parseFloat(result.distances.h.toFixed(2)) : null,
+    distance_d:      result ? parseFloat(result.distances.d.toFixed(2)) : null,
+    perkins:         result?.perkins         ?? null,
+    dysplasia_level: result?.dysplasia.level ?? null,
+    dysplasia_stage: result?.dysplasia.stage ?? null,
   };
 
-  console.log("[analysisRepository] Сохраняем запись:", {
-    ...record,
-    notes: "...см. ниже",
+  console.log("[analysisRepository] Отправляем на бэкенд:", {
+    ...body,
+    full_name: body.full_name,
   });
 
-  const { data, error } = await supabase
-    .from("xray_images")
-    .insert(record)
-    .select("id")
-    .single();
-
-  if (error) {
-    console.error("[analysisRepository] Ошибка Supabase:", JSON.stringify(error));
-    return { success: false, error: error.message };
+  let response: Response;
+  try {
+    response = await fetch(`${BACKEND_URL}/save`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(body),
+    });
+  } catch {
+    return {
+      success: false,
+      error: "Не удалось подключиться к бэкенду. Убедитесь что dicom_to_png.py запущен.",
+    };
   }
 
-  console.log("[analysisRepository] Запись сохранена, id:", data?.id);
-  return { success: true, id: data?.id };
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    console.error("[analysisRepository] Ошибка:", data.error);
+    return { success: false, error: data.error ?? "Ошибка сохранения" };
+  }
+
+  console.log("[analysisRepository] Сохранено, id:", data.id);
+  return { success: true, id: data.id };
 }

@@ -7,136 +7,84 @@ import io
 import os
 import base64
 import requests
+import psycopg2
+import json
+from datetime import datetime
 
 app = Flask(__name__)
-CORS(app)  # Разрешаем CORS для работы с фронтендом
+CORS(app)
+
+# ─── Подключение к PostgreSQL ─────────────────────────────────────────────────
+
+DB_CONFIG = {
+    "dbname":   "hipdx",
+    "user":     os.getenv("DB_USER",     "tatev"),   # замени на своё имя пользователя
+    "password": os.getenv("DB_PASSWORD", ""),
+    "host":     os.getenv("DB_HOST",     "localhost"),
+    "port":     os.getenv("DB_PORT",     "5432"),
+}
+
+def get_db():
+    """Возвращает соединение с PostgreSQL."""
+    return psycopg2.connect(**DB_CONFIG)
+
+
+# ─── Конвертация DICOM → PNG ──────────────────────────────────────────────────
 
 def dicom_to_png(dicom_data):
-    """Конвертирует DICOM файл в строку, описывающую PNG изображение, размер пикселя, формат изображения
-    Вернёт словарь виде: {'image':image_base64,
-            'image_type':'png',
-            'pixel_size_x':pixel_size[0],
-            'pixel_size_y':pixel_size[1]}"""
-    
-    # Читаем DICOM файл
+    """Конвертирует DICOM файл в base64 PNG + возвращает размер пикселя."""
     ds = pydicom.dcmread(io.BytesIO(dicom_data))
-    
-    # Получаем пиксельные данные
     pixel_array = ds.pixel_array
-    
-    # Нормализуем значения до диапазона 0-255
+
     if pixel_array.dtype != np.uint8:
-        pixel_array = ((pixel_array - pixel_array.min()) / 
-                      (pixel_array.max() - pixel_array.min()) * 255).astype(np.uint8)
-        
-    pixel_array = np.stack([pixel_array] * 3, axis=-1) #дублируем в 3х канал ???
-    
-    # Создаем PIL изображение
+        pixel_array = ((pixel_array - pixel_array.min()) /
+                       (pixel_array.max() - pixel_array.min()) * 255).astype(np.uint8)
+
+    pixel_array = np.stack([pixel_array] * 3, axis=-1)
+
     if len(pixel_array.shape) == 2:
         image = Image.fromarray(pixel_array, mode='L')
     elif len(pixel_array.shape) == 3:
         image = Image.fromarray(pixel_array)
     else:
         raise ValueError("Неподдерживаемый формат DICOM")
-    
+
     print('dicom')
-    # Сохраняем в строку base_64
     png_buffer = io.BytesIO()
     image.save(png_buffer, format='PNG')
     png_buffer.seek(0)
     image_base64 = base64.b64encode(png_buffer.getvalue()).decode('utf-8')
+    pixel_size = ds.PixelSpacing
 
-    pixel_size = ds.PixelSpacing#в мм
-
-    data = {'image':image_base64,
-            'image_type':'png',
-            'pixel_size_x':pixel_size[0],
-            'pixel_size_y':pixel_size[1]}
-    
-    return data
-
-
-
-@app.route('/predict', methods=['POST'])
-def main_point():
-
-    '''
-    Точка взаимодействия фронта и перевода dicom в картинку, вызов сервера с МО, возвращение предсказания. Принимаем request с файлом. Response - json с полями, зависящими от фходного файла.
-    Для dicom: {'image':image_base64,
-            'image_type':'png',
-            'pixel_size_x':pixel_size[0],
-            'pixel_size_y':pixel_size[1],
-            'predict':{1_point:{'x':x,'y':y},
-                        и т.д.
-                        }
-            }
-
-    Для изображения:{'image':image_base64,
-                    'predict':{1_point:{'x':x,'y':y},
-                                        и т.д.
-                                        }
+    return {
+        'image': image_base64,
+        'image_type': 'png',
+        'pixel_size_x': pixel_size[0],
+        'pixel_size_y': pixel_size[1],
     }
-    '''
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'Файл не найден'}), 400
-        
-        file = request.files['file']
-        
-        if file.filename == '':
-            return jsonify({'error': 'Файл не выбран'}), 400
-        
-        # Читаем файл
-        file_data = file.read()
 
-        type = os.path.splitext(file.filename)[1]
-
-        images_type = ['.png','.jpg','.jpeg']
-
-        print(type)
-
-        if(type in images_type):
-            result = imageto_base64(file_data)
-        else:
-            result = dicom_to_png(file_data)
-
-        
-        result.update(make_predict(result))
-        return jsonify(result)
-
-    except Exception as e:
-        print(str(e))
-        return jsonify({'error': str(e)}), 500
 
 def imageto_base64(image_file):
-     '''
-     Перевод изображений png, jpeg, jpg в строку, описывающую изображение. Image_file - байты файла. Возвращает словарь [image] - строка, описывающая файл
-     '''
-     try:
+    """Конвертирует PNG/JPG в base64."""
+    try:
         data = io.BytesIO(image_file)
         image = Image.open(data)
-        image = image.convert("RGB") #уберём альфа канал из изображения
+        image = image.convert("RGB")
         print('image')
-        # Сохраняем в строку base_64
         png_buffer = io.BytesIO()
         image.save(png_buffer, format='PNG')
         png_buffer.seek(0)
         image_base64 = base64.b64encode(png_buffer.getvalue()).decode('utf-8')
-        return {'image':image_base64}
-        
-
-     except Exception as e:
+        return {'image': image_base64}
+    except Exception as e:
         print(str(e))
         return jsonify({'error': str(e)}), 500
 
 
 def make_predict(data):
-    '''
-    data - Json с полем image, в которм строка, описывающая изображение
-    '''
+    """Отправляет изображение в ML-сервер, получает координаты точек."""
     try:
-        request_data = {'input':data['image']}
-        # Делаем POST-запрос к нейросети
+        request_data = {'input': data['image']}
         response = requests.post(ml_server_url, json=request_data)
         if response.status_code == 200:
             return response.json()
@@ -146,11 +94,154 @@ def make_predict(data):
         return {"error": "Не удалось подключиться к серверу нейросети. Убедитесь, что он запущен."}
 
 
+# ─── Эндпоинты ────────────────────────────────────────────────────────────────
+
+@app.route('/predict', methods=['POST'])
+def main_point():
+    """Принимает снимок, конвертирует, запускает ML, возвращает результат."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'Файл не найден'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'Файл не выбран'}), 400
+
+        file_data = file.read()
+        ext = os.path.splitext(file.filename)[1].lower()
+
+        if ext in ['.png', '.jpg', '.jpeg']:
+            result = imageto_base64(file_data)
+        else:
+            result = dicom_to_png(file_data)
+
+        result.update(make_predict(result))
+        return jsonify(result)
+
+    except Exception as e:
+        print(str(e))
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/save', methods=['POST'])
+def save_analysis():
+    """
+    Сохраняет данные пациента и результаты анализа в PostgreSQL.
+
+    Принимает JSON:
+    {
+        patient_id, full_name, birth_date, doctor, diagnosis, notes,
+        file_name, age_months, gender,
+        angle, distance_h, distance_d, perkins, dysplasia_level, dysplasia_stage
+    }
+
+    Возвращает: { success: true, id: <int> }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Нет данных'}), 400
+
+        conn = get_db()
+        cur  = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO xray_analyses (
+                patient_id, full_name, birth_date, doctor,
+                diagnosis, notes, file_name,
+                age_months, gender,
+                angle, distance_h, distance_d,
+                perkins, dysplasia_level, dysplasia_stage
+            ) VALUES (
+                %(patient_id)s, %(full_name)s, %(birth_date)s, %(doctor)s,
+                %(diagnosis)s, %(notes)s, %(file_name)s,
+                %(age_months)s, %(gender)s,
+                %(angle)s, %(distance_h)s, %(distance_d)s,
+                %(perkins)s, %(dysplasia_level)s, %(dysplasia_stage)s
+            ) RETURNING id
+        """, {
+            "patient_id":      data.get("patient_id"),
+            "full_name":       data.get("full_name"),
+            "birth_date":      data.get("birth_date") or None,
+            "doctor":          data.get("doctor"),
+            "diagnosis":       data.get("diagnosis"),
+            "notes":           data.get("notes"),
+            "file_name":       data.get("file_name"),
+            "age_months":      data.get("age_months"),
+            "gender":          data.get("gender"),
+            "angle":           data.get("angle"),
+            "distance_h":      data.get("distance_h"),
+            "distance_d":      data.get("distance_d"),
+            "perkins":         data.get("perkins"),
+            "dysplasia_level": data.get("dysplasia_level"),
+            "dysplasia_stage": data.get("dysplasia_stage"),
+        })
+
+        record_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"[save] Запись сохранена, id: {record_id}")
+        return jsonify({"success": True, "id": record_id})
+
+    except Exception as e:
+        print(f"[save] Ошибка: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/analyses', methods=['GET'])
+def get_analyses():
+    """
+    Возвращает список всех записей для галереи.
+    Поддерживает фильтрацию: ?patient_id=...&diagnosis=...
+    """
+    try:
+        patient_id = request.args.get("patient_id", "")
+        diagnosis  = request.args.get("diagnosis", "")
+
+        conn = get_db()
+        cur  = conn.cursor()
+
+        query = "SELECT * FROM xray_analyses WHERE 1=1"
+        params = []
+
+        if patient_id:
+            query += " AND patient_id ILIKE %s"
+            params.append(f"%{patient_id}%")
+        if diagnosis:
+            query += " AND diagnosis ILIKE %s"
+            params.append(f"%{diagnosis}%")
+
+        query += " ORDER BY created_at DESC"
+
+        cur.execute(query, params)
+        columns = [desc[0] for desc in cur.description]
+        rows    = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        result = []
+        for row in rows:
+            record = dict(zip(columns, row))
+            # Конвертируем datetime и date в строки для JSON
+            for key, val in record.items():
+                if hasattr(val, 'isoformat'):
+                    record[key] = val.isoformat()
+            result.append(record)
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[analyses] Ошибка: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/')
 def index():
-    """Отдаем HTML страницу"""
+    """Отдаем HTML страницу."""
     return send_file('index.html')
+
 
 if __name__ == '__main__':
     ml_server_url = 'http://127.0.0.1:5000/predict'

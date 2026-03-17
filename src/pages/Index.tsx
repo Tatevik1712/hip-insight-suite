@@ -144,7 +144,7 @@ const Index = () => {
         setSavedId(id);
         toast({
           title: "Данные сохранены",
-          description: `Запись сохранена (ID: ${id.slice(0, 8)}...)`,
+          description: `Запись сохранена (ID: ${String(id)})`,
         });
       } else {
         throw new Error(error ?? "Ошибка сохранения");
