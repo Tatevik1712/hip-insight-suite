@@ -1,49 +1,173 @@
-import { useState } from "react";
+/**
+ * @file pages/Index.tsx
+ * @description Главная страница приложения.
+ *
+ * Логический порядок шагов для врача:
+ *   1. Загрузить снимок
+ *   2. Заполнить данные пациента
+ *   3. Настроить фильтры изображения (опционально)
+ *   4. Указать параметры анализа (возраст, пол)
+ *   5. Нажать "Определить точки" → AI анализирует + сохраняет в Supabase
+ *   6. Смотреть результаты
+ *
+ * Студент:
+ *   — Переключает режим → открывает анализатор для ручной расстановки точек
+ */
+import React, { useState, useRef, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import DicomViewer from "@/components/DicomViewer";
-import ParametersDashboard from "@/components/ParametersDashboard";
-import DiagnosisCard from "@/components/DiagnosisCard";
-import ModeToggle from "@/components/ModeToggle";
-import StudentPanel from "@/components/StudentPanel";
-import UploadPanel from "@/components/UploadPanel";
-import ImageAdjustments, { type ImageFilters } from "@/components/ImageAdjustments";
-import SendToAIButton from "@/components/SendToAIButton";
-import { XRayAnalyzer } from "@/components/XRayAnalyzer";
-import { Activity, Images, X } from "lucide-react";
+import {
+  Activity, Images, X, Sparkles, Loader2,
+  AlertCircle, CheckCircle2, Upload, RotateCcw,
+  Database,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import hipXray from "@/assets/hip-xray.jpg";
+
+import { useAnalyzer }  from "@/features/analyzer/controller/useAnalyzer";
+import { ResultsPanel } from "@/features/analyzer/view/ResultsPanel";
+import { XRayAnalyzer } from "@/features/analyzer/view/XRayAnalyzer";
+import DicomViewer      from "@/features/viewer/view/DicomViewer";
+import ModeToggle       from "@/shared/components/ModeToggle";
+import StudentPanel     from "@/shared/components/StudentPanel";
+import PatientCard      from "@/components/PatientCard";
+import ImageAdjustments, { type ImageFilters } from "@/components/ImageAdjustments";
+
+import { saveAnalysis, type PatientData } from "@/services/analysisRepository";
+import type { Gender } from "@/types";
+
+// Начальное состояние формы пациента
+const EMPTY_PATIENT: PatientData = {
+  fullName: "", birthDate: "", patientId: "",
+  doctor: "", diagnosis: "", notes: "",
+};
 
 const Index = () => {
-  const [showOverlay, setShowOverlay] = useState(true);
-  const [studentMode, setStudentMode] = useState(false);
+  // ── Состояние страницы ─────────────────────────────────────────────────────
+  const [showOverlay,    setShowOverlay]    = useState(false);
+  const [studentMode,    setStudentMode]    = useState(false);
   const [studentChecked, setStudentChecked] = useState(false);
-  const [analyzerOpen, setAnalyzerOpen] = useState(false);
+  const [analyzerOpen,   setAnalyzerOpen]   = useState(false);
+  const [filters, setFilters] = useState<ImageFilters>({
+    brightness: 100, contrast: 100, invert: false,
+  });
+
+  // Данные пациента — управляемые, живут здесь чтобы передать в БД
+  const [patientData, setPatientData] = useState<PatientData>(EMPTY_PATIENT);
+
+  // Статус сохранения в БД
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedId,    setSavedId]    = useState<string | null>(null);
+
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { toast } = useToast();
+  const navigate       = useNavigate();
+  const { toast }      = useToast();
+  const fileInputRef   = useRef<HTMLInputElement>(null);
 
+  // ── Контроллер анализатора ─────────────────────────────────────────────────
+  const analyzer = useAnalyzer();
+
+  // Загрузка снимка из query-параметра (?image=url)
   const imageFromQuery = searchParams.get("image");
-  const [customImage, setCustomImage] = useState<string | null>(imageFromQuery);
-  const [filters, setFilters] = useState<ImageFilters>({ brightness: 100, contrast: 100, invert: false });
-  const [aiLoading, setAiLoading] = useState(false);
+  useEffect(() => {
+    if (!imageFromQuery) return;
+    fetch(imageFromQuery)
+      .then(r => r.blob())
+      .then(blob => {
+        const file = new File([blob], "xray.jpg", { type: blob.type });
+        analyzer.handleImageLoad(file);
+      })
+      .catch(() => {});
+  }, []);
 
-  const currentImageSrc = customImage || hipXray;
+  const viewerImage = analyzer.image?.src ?? null;
 
-  const handleSendToAI = (processedDataUrl: string) => {
-    setAiLoading(true);
-    toast({
-      title: "Изображение готово",
-      description: "Обработанный снимок подготовлен для отправки в вашу модель ИИ. Data URL доступен в консоли.",
-    });
-    console.log("[HipDx AI] Processed image data URL length:", processedDataUrl.length);
-    console.log("[HipDx AI] Use this data URL to send to your AI model.");
-    window.dispatchEvent(new CustomEvent("hipdx:image-ready", { detail: { dataUrl: processedDataUrl } }));
-    setAiLoading(false);
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      analyzer.handleImageLoad(file);
+      // Сбрасываем статус сохранения при загрузке нового снимка
+      setSaveStatus("idle");
+      setSavedId(null);
+    }
+    e.target.value = "";
   };
+
+  // ── AI-анализ + сохранение в БД ────────────────────────────────────────────
+  const handleAnalyzeAndSave = async () => {
+      // Проверка заполненности обязательных полей
+    if (!analyzer.imageFile) {
+      toast({ title: "Загрузите снимок", variant: "destructive" });
+      return;
+    }
+    if (!patientData.fullName.trim()) {
+      toast({ title: "Введите ФИО пациента", variant: "destructive" });
+      return;
+    }
+    if (!patientData.birthDate) {
+      toast({ title: "Укажите дату рождения", variant: "destructive" });
+      return;
+    }
+    if (!patientData.patientId.trim()) {
+      toast({ title: "Введите ID пациента", variant: "destructive" });
+      return;
+    }
+    if (!patientData.doctor.trim()) {
+      toast({ title: "Укажите лечащего врача", variant: "destructive" });
+      return;
+    }
+    if (!patientData.diagnosis) {
+      toast({ title: "Выберите диагноз", variant: "destructive" });
+      return;
+    }
+
+
+    // Получаем результат напрямую из функции, не из state
+    const analysisResult = await analyzer.handleAIPredict();
+
+    if (!analysisResult) return; // AI вернул ошибку
+
+    setSaveStatus("saving");
+    try {
+      const imageBase64 = analyzer.image?.src
+        ?.replace(/^data:image\/\w+;base64,/, "") ?? null;
+
+      const { success, id, error } = await saveAnalysis({
+        patient:     patientData,
+        ageMonths:   analyzer.ageMonths,
+        gender:      analyzer.gender,
+        result:      analysisResult,   // ← реальный результат, не из state
+        imageFile:   analyzer.imageFile,
+        imageBase64,
+      });
+
+      if (success && id) {
+        setSaveStatus("saved");
+        setSavedId(id);
+        toast({
+          title: "Данные сохранены",
+          description: `Запись сохранена (ID: ${id.slice(0, 8)}...)`,
+        });
+      } else {
+        throw new Error(error ?? "Ошибка сохранения");
+      }
+    } catch (err) {
+      setSaveStatus("error");
+      toast({
+        title: "Ошибка сохранения",
+        description: err instanceof Error ? err.message : "Не удалось сохранить",
+        variant: "destructive",
+      });
+    }
+  };
+  // Кнопка анализа недоступна если нет снимка или уже идёт загрузка
+  const canAnalyze =
+    !!analyzer.imageFile &&
+    analyzer.aiStatus !== "loading" &&
+    saveStatus !== "saving";
 
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">
-      {/* Header */}
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <header className="h-14 border-b border-border flex items-center justify-between px-6 bg-card shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg medical-gradient flex items-center justify-center">
@@ -59,83 +183,283 @@ const Index = () => {
             onClick={() => navigate("/gallery")}
             className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Images className="w-4 h-4" />
-            Галерея
+            <Images className="w-4 h-4" />Галерея
           </button>
-          <span className="text-xs text-muted-foreground font-mono">ID: DDH-2024-0847</span>
           <div className="w-2 h-2 rounded-full bg-medical-green animate-pulse-soft" />
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* ── Main ──────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Viewer */}
+
+        {/* Просмотрщик снимка */}
         <div className="flex-1 flex p-3">
           <DicomViewer
             showOverlay={showOverlay}
             onToggleOverlay={() => setShowOverlay(o => !o)}
             studentMode={studentMode}
             showStudentCheck={studentChecked}
-            customImage={customImage}
+            customImage={viewerImage}
             filters={filters}
           />
         </div>
 
-        {/* Sidebar */}
+        {/* ── Боковая панель ──────────────────────────────────────────────── */}
         <aside className="w-[360px] border-l border-border bg-card overflow-y-auto p-4 space-y-4 shrink-0">
+
           <ModeToggle
             studentMode={studentMode}
-            onToggle={() => { setStudentMode(m => !m); setStudentChecked(false); }}
+            onToggle={() => {
+                  const next = !studentMode;
+                  setStudentMode(next);
+                  setStudentChecked(false);
+                  if (next) setAnalyzerOpen(true);
+                }}
           />
 
-          <UploadPanel onUploaded={(url) => setCustomImage(url)} />
-
-          <ImageAdjustments filters={filters} onChange={setFilters} />
-
-          <SendToAIButton
-            imageSrc={currentImageSrc}
-            filters={filters}
-            loading={aiLoading}
-            onSend={handleSendToAI}
-          />
-
-          {studentMode ? (
-            <StudentPanel
-              onCheck={() => setStudentChecked(true)}
-              checked={studentChecked}
-              onReset={() => setStudentChecked(false)}
-              onOpenAnalyzer={() => setAnalyzerOpen(true)}
-            />
-          ) : (
+          {/* ══════════════════════════════════════════════════════════════
+              ВРАЧЕБНЫЙ РЕЖИМ — логический порядок шагов
+          ══════════════════════════════════════════════════════════════ */}
+          {!studentMode && (
             <>
-              <ParametersDashboard />
-              <DiagnosisCard status="normal" />
+              {/* ── ШАГ 1: Загрузка снимка ─────────────────────────────── */}
+              <div className="glass-panel rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
+                    <span className="text-[10px] font-bold text-primary-foreground">1</span>
+                  </div>
+                  <p className="text-xs font-semibold text-foreground">Загрузите снимок</p>
+                </div>
+
+                {!analyzer.image ? (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg border-2
+                               border-dashed border-border bg-secondary/40 px-4 py-5 text-xs
+                               font-medium text-muted-foreground hover:border-primary/50
+                               hover:text-primary hover:bg-primary/5 transition-all"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Загрузить рентгеновский снимок
+                  </button>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-2 h-2 rounded-full bg-success shrink-0" />
+                      <span className="text-xs text-foreground truncate">
+                        {analyzer.imageFile?.name ?? "Снимок загружен"}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => { analyzer.handleReset(); setSaveStatus("idle"); setSavedId(null); }}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0 transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" />Сменить
+                    </button>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,.dcm,.dicom"
+                  className="hidden"
+                  onChange={onFileChange}
+                />
+              </div>
+
+              {/* ── ШАГ 2: Данные пациента ─────────────────────────────── */}
+              <div className="relative">
+                {/* Блокирующий оверлей если снимок не загружен */}
+                {!analyzer.image && (
+                  <div className="absolute inset-0 z-10 rounded-lg bg-background/60 backdrop-blur-[1px] flex items-center justify-center">
+                    <p className="text-xs text-muted-foreground">Сначала загрузите снимок</p>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mb-2 px-1">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${analyzer.image ? "bg-primary" : "bg-muted"}`}>
+                    <span className="text-[10px] font-bold text-primary-foreground">2</span>
+                  </div>
+                  <p className={`text-xs font-semibold ${analyzer.image ? "text-foreground" : "text-muted-foreground"}`}>
+                    Заполните данные пациента
+                  </p>
+                </div>
+                <PatientCard data={patientData} onChange={setPatientData} />
+              </div>
+
+              {/* ── ШАГ 3: Фильтры изображения ─────────────────────────── */}
+              <div className="relative">
+                {!analyzer.image && (
+                  <div className="absolute inset-0 z-10 rounded-lg bg-background/60 backdrop-blur-[1px]" />
+                )}
+                <div className="flex items-center gap-2 mb-2 px-1">
+                  <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${analyzer.image ? "bg-primary" : "bg-muted"}`}>
+                    <span className="text-[10px] font-bold text-primary-foreground">3</span>
+                  </div>
+                  <p className={`text-xs font-semibold ${analyzer.image ? "text-foreground" : "text-muted-foreground"}`}>
+                    Настройте изображение
+                  </p>
+                </div>
+                <ImageAdjustments filters={filters} onChange={setFilters} />
+              </div>
+
+              {/* ── ШАГ 4: Параметры анализа ───────────────────────────── */}
+              {analyzer.image && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                    <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <span className="text-[10px] font-bold text-primary-foreground">4</span>
+                    </div>
+                    <p className="text-xs font-semibold text-foreground">Параметры пациента</p>
+                  </div>
+                  <div className="glass-panel rounded-lg p-4">
+                    <div className="flex flex-wrap gap-3 items-center">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-muted-foreground">Возраст</label>
+                        <input
+                          type="number" min={0} max={24} value={analyzer.ageMonths}
+                          onChange={(e) => analyzer.setAgeMonths(parseInt(e.target.value) || 0)}
+                          className="w-14 rounded-lg border border-border bg-background px-2 py-1.5
+                                     text-center text-sm text-foreground focus:border-primary
+                                     focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                        <span className="text-xs text-muted-foreground">мес.</span>
+                      </div>
+                      <div className="flex rounded-lg border border-border bg-secondary p-0.5">
+                        {(["male", "female"] as const).map((g) => (
+                          <button key={g}
+                            onClick={() => analyzer.setGender(g as Gender)}
+                            className={`rounded-md px-3 py-1 text-xs font-semibold transition-all ${
+                              analyzer.gender === g
+                                ? "medical-gradient text-primary-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {g === "male" ? "М" : "Ж"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-3 py-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                      <span className="text-[11px] text-primary">{analyzer.normLabel}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── ШАГ 5: Запуск анализа ──────────────────────────────── */}
+              {analyzer.image && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                    <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <span className="text-[10px] font-bold text-primary-foreground">5</span>
+                    </div>
+                    <p className="text-xs font-semibold text-foreground">Запустите анализ ИИ</p>
+                  </div>
+                  <div className="glass-panel rounded-lg p-4">
+                    <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                      Нейросеть определит 6 анатомических точек, рассчитает параметры и сохранит данные в базе.
+                    </p>
+
+                    {/* Статус AI */}
+                    {analyzer.aiStatus === "error" && (
+                      <div className="flex items-start gap-1.5 text-destructive text-xs mb-3 p-2 rounded-lg bg-destructive/8 border border-destructive/20">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span className="leading-relaxed">{analyzer.aiError}</span>
+                      </div>
+                    )}
+
+                    {/* Статус сохранения */}
+                    {saveStatus === "saved" && savedId && (
+                      <div className="flex items-center gap-1.5 text-success text-xs mb-3 p-2 rounded-lg bg-success/8 border border-success/20">
+                        <Database className="w-3.5 h-3.5" />
+                        <span>Сохранено в базе данных</span>
+                      </div>
+                    )}
+                    {saveStatus === "error" && (
+                      <div className="flex items-center gap-1.5 text-destructive text-xs mb-3 p-2 rounded-lg bg-destructive/8 border border-destructive/20">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>Ошибка сохранения в БД</span>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={handleAnalyzeAndSave}
+                      disabled={!canAnalyze}
+                      className="w-full flex items-center justify-center gap-2 medical-gradient
+                                 text-primary-foreground rounded-lg px-4 py-2.5 text-xs font-semibold
+                                 hover:opacity-90 transition-all active:scale-95 shadow-sm
+                                 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {analyzer.aiStatus === "loading" || saveStatus === "saving" ? (
+                        <><Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          {saveStatus === "saving" ? "Сохраняю..." : "Анализирую..."}
+                        </>
+                      ) : saveStatus === "saved" ? (
+                        <><CheckCircle2 className="w-3.5 h-3.5" />Анализ завершён</>
+                      ) : (
+                        <><Sparkles className="w-3.5 h-3.5" />Определить точки и сохранить</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Результаты ─────────────────────────────────────────── */}
+              {analyzer.result && (
+                <div className="glass-panel rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Результаты измерений
+                    </p>
+                    <span className="flex items-center gap-1 text-[10px] text-primary font-medium
+                                     rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5">
+                      <Sparkles className="w-3 h-3" />ИИ
+                    </span>
+                  </div>
+                  <ResultsPanel result={analyzer.result} />
+                </div>
+              )}
             </>
           )}
+
+          {/* ══════════════════════════════════════════════════════════════
+              СТУДЕНЧЕСКИЙ РЕЖИМ
+          ══════════════════════════════════════════════════════════════ */}
+          {studentMode && (
+            <>
+              <ImageAdjustments filters={filters} onChange={setFilters} />
+              <StudentPanel
+                onCheck={() => setStudentChecked(true)}
+                checked={studentChecked}
+                onReset={() => setStudentChecked(false)}
+                onOpenAnalyzer={() => setAnalyzerOpen(true)}
+              />
+            </>
+          )}
+
         </aside>
       </div>
 
-      {/* ── XRay Analyzer Modal ───────────────────────────────────────────── */}
+      {/* ── Fullscreen анализатор (студенческий режим) ──────────────────────── */}
       {analyzerOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-fade-in">
-          {/* Modal header */}
-          <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/90 px-6 py-3 backdrop-blur-sm shrink-0">
+        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-fade-in">
+          <div className="flex items-center justify-between border-b border-border bg-card px-6 py-3 shrink-0">
             <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-              <span className="text-sm font-semibold text-slate-100 font-mono tracking-wide">
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              <span className="text-sm font-semibold text-foreground">
                 Анализатор точек — Режим обучения
               </span>
             </div>
             <button
               onClick={() => setAnalyzerOpen(false)}
-              className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-all"
+              className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5
+                         text-xs text-muted-foreground hover:text-foreground
+                         hover:border-muted-foreground transition-all"
             >
-              <X className="w-3.5 h-3.5" />
-              Закрыть
+              <X className="w-3.5 h-3.5" />Закрыть
             </button>
           </div>
-
-          {/* Analyzer content — scrollable */}
           <div className="flex-1 overflow-y-auto">
             <XRayAnalyzer />
           </div>
