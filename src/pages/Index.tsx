@@ -8,7 +8,8 @@ import StudentPanel from "@/components/StudentPanel";
 import UploadPanel from "@/components/UploadPanel";
 import ImageAdjustments, { type ImageFilters } from "@/components/ImageAdjustments";
 import SendToAIButton from "@/components/SendToAIButton";
-import { Activity, Images } from "lucide-react";
+import { XRayAnalyzer } from "@/components/XRayAnalyzer";
+import { Activity, Images, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import hipXray from "@/assets/hip-xray.jpg";
 
@@ -16,6 +17,7 @@ const Index = () => {
   const [showOverlay, setShowOverlay] = useState(true);
   const [studentMode, setStudentMode] = useState(false);
   const [studentChecked, setStudentChecked] = useState(false);
+  const [analyzerOpen, setAnalyzerOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -29,14 +31,12 @@ const Index = () => {
 
   const handleSendToAI = (processedDataUrl: string) => {
     setAiLoading(true);
-    // Simulate — user will integrate their own model here
     toast({
       title: "Изображение готово",
       description: "Обработанный снимок подготовлен для отправки в вашу модель ИИ. Data URL доступен в консоли.",
     });
     console.log("[HipDx AI] Processed image data URL length:", processedDataUrl.length);
     console.log("[HipDx AI] Use this data URL to send to your AI model.");
-    // Expose the event so external code can hook into it
     window.dispatchEvent(new CustomEvent("hipdx:image-ready", { detail: { dataUrl: processedDataUrl } }));
     setAiLoading(false);
   };
@@ -83,7 +83,10 @@ const Index = () => {
 
         {/* Sidebar */}
         <aside className="w-[360px] border-l border-border bg-card overflow-y-auto p-4 space-y-4 shrink-0">
-          <ModeToggle studentMode={studentMode} onToggle={() => { setStudentMode(m => !m); setStudentChecked(false); }} />
+          <ModeToggle
+            studentMode={studentMode}
+            onToggle={() => { setStudentMode(m => !m); setStudentChecked(false); }}
+          />
 
           <UploadPanel onUploaded={(url) => setCustomImage(url)} />
 
@@ -101,6 +104,7 @@ const Index = () => {
               onCheck={() => setStudentChecked(true)}
               checked={studentChecked}
               onReset={() => setStudentChecked(false)}
+              onOpenAnalyzer={() => setAnalyzerOpen(true)}
             />
           ) : (
             <>
@@ -110,6 +114,33 @@ const Index = () => {
           )}
         </aside>
       </div>
+
+      {/* ── XRay Analyzer Modal ───────────────────────────────────────────── */}
+      {analyzerOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 animate-fade-in">
+          {/* Modal header */}
+          <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/90 px-6 py-3 backdrop-blur-sm shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              <span className="text-sm font-semibold text-slate-100 font-mono tracking-wide">
+                Анализатор точек — Режим обучения
+              </span>
+            </div>
+            <button
+              onClick={() => setAnalyzerOpen(false)}
+              className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-all"
+            >
+              <X className="w-3.5 h-3.5" />
+              Закрыть
+            </button>
+          </div>
+
+          {/* Analyzer content — scrollable */}
+          <div className="flex-1 overflow-y-auto">
+            <XRayAnalyzer />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

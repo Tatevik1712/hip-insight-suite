@@ -1,22 +1,32 @@
-import { Pencil, CheckSquare, RotateCcw } from "lucide-react";
+import { Pencil, CheckSquare, RotateCcw, ScanLine } from "lucide-react";
 
 interface StudentPanelProps {
   onCheck: () => void;
   checked: boolean;
   onReset: () => void;
+  onOpenAnalyzer: () => void;
 }
 
-const StudentPanel = ({ onCheck, checked, onReset }: StudentPanelProps) => {
+const StudentPanel = ({ onCheck, checked, onReset, onOpenAnalyzer }: StudentPanelProps) => {
   return (
     <div className="glass-panel rounded-lg p-4 animate-fade-in">
       <div className="flex items-center gap-2 mb-3">
         <Pencil className="w-4 h-4 text-medical-teal" />
         <h3 className="text-sm font-semibold text-foreground">Режим обучения</h3>
       </div>
-      
+
       <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
         Расставьте опорные точки на снимке самостоятельно. Нажмите «Проверить» для сравнения с эталоном ИИ.
       </p>
+
+      {/* Analyzer launch button */}
+      <button
+        onClick={onOpenAnalyzer}
+        className="w-full flex items-center justify-center gap-2 rounded-md px-3 py-2.5 mb-3 text-xs font-semibold bg-medical-blue/10 text-medical-blue border border-medical-blue/30 hover:bg-medical-blue/20 transition-all"
+      >
+        <ScanLine className="w-3.5 h-3.5" />
+        Открыть анализатор точек
+      </button>
 
       <div className="flex gap-2">
         <button
@@ -47,7 +57,10 @@ const StudentPanel = ({ onCheck, checked, onReset }: StudentPanelProps) => {
             <span className="text-xs text-muted-foreground">Ваши линии</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-0.5 rounded bg-medical-green border-dashed" style={{ borderTop: "1.5px dashed hsl(142, 71%, 45%)" , height: 0 }} />
+            <div
+              className="w-3 rounded bg-medical-green"
+              style={{ borderTop: "1.5px dashed hsl(142, 71%, 45%)", height: 0 }}
+            />
             <span className="text-xs text-muted-foreground">Эталон ИИ</span>
           </div>
         </div>

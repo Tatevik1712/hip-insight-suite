@@ -1,73 +1,177 @@
-# Welcome to your Lovable project
+# HipDx AI — Анализ дисплазии тазобедренного сустава
 
-## Project info
+Веб-приложение для рентгенологической диагностики дисплазии тазобедренного сустава (ТБС) у детей до 2 лет. Поддерживает ручную расстановку анатомических точек и автоматическое определение с помощью нейросети.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+---
 
-## How can I edit this code?
+## Что умеет приложение
 
-There are several ways of editing your application.
+- Загрузка рентгеновских снимков: **PNG, JPG, DICOM**
+- **Ручная расстановка** 6 анатомических точек с пошаговой инструкцией
+- **Автоматическое определение точек** через ML-нейросеть (Flask-бэкенд)
+- Автоматический расчёт:
+  - Ацетабулярного угла α
+  - Дистанций h и d по Хильгенрейнеру
+  - Положения по Перкину
+- **Возрастные нормы** с учётом пола (таблица Tönnis, 1976)
+- Классификация степени дисплазии (норма / I–III степень)
+- **Режим обучения** для студентов — сравнение своих точек с предсказанием ИИ
+- Для DICOM — автоматический перевод пикселей в мм через тег `PixelSpacing`
 
-**Use Lovable**
+---
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Стек технологий
 
-Changes made via Lovable will be committed automatically to this repo.
+### Фронтенд
+| Технология | Роль |
+|---|---|
+| React 18 + TypeScript | UI и логика |
+| Vite | Сборка и dev-сервер |
+| Tailwind CSS | Стилизация |
+| shadcn/ui | UI-компоненты |
+| React Router | Навигация |
+| Canvas API | Отрисовка точек и линий |
 
-**Use your preferred IDE**
+### Бэкенд (ML)
+| Технология | Роль |
+|---|---|
+| Flask | HTTP-серверы |
+| TensorFlow/Keras | Нейросеть (pooler.h5) |
+| scikit-learn | Случайный лес (best_forest.pkl) |
+| pydicom | Чтение DICOM-файлов |
+| Pillow | Обработка изображений |
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+---
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## Структура проекта
 
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```
+hip-insight-suite/
+├── src/                          # React-приложение
+│   ├── types/
+│   │   └── index.ts              # Все TypeScript-типы
+│   ├── constants/
+│   │   └── index.ts              # Константы (нормы, цвета, URL)
+│   ├── model/
+│   │   └── hipAnalysis.ts        # Бизнес-логика (Model)
+│   ├── services/
+│   │   ├── canvasService.ts      # Отрисовка на Canvas (Service)
+│   │   └── mlService.ts          # Запросы к ML-бэкенду (Service)
+│   ├── features/
+│   │   └── analyzer/
+│   │       ├── types/            # Реэкспорт типов для фичи
+│   │       ├── controller/
+│   │       │   └── useAnalyzer.ts        # React-хук (Controller)
+│   │       └── view/
+│   │           ├── XRayAnalyzer.tsx      # Главный компонент (View)
+│   │           ├── ResultsPanel.tsx      # Панель результатов (View)
+│   │           └── PointProgress.tsx     # Индикатор точек (View)
+│   ├── pages/
+│   │   ├── Index.tsx             # Главная страница
+│   │   ├── AnalysisPage.tsx      # Страница анализатора
+│   │   ├── Gallery.tsx           # Галерея
+│   │   └── NotFound.tsx          # 404
+│   └── components/               # Прочие компоненты проекта
+│
+├── ML/
+│   ├── ml_server.py              # Flask ML-сервер (порт 5000)
+│   ├── best_forest.pkl           # Обученный случайный лес
+│   └── scaler_y.pkl              # Нормализатор координат
+│
+├── Back/
+│   ├── dicom_to_png.py           # Flask точка входа (порт 5001)
+│   └── index.html                # Старый HTML-интерфейс (архив)
+│
+└── README.md
 ```
 
-**Edit a file directly in GitHub**
+---
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Быстрый старт
 
-**Use GitHub Codespaces**
+### 1. Фронтенд
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```bash
+# Установка зависимостей
+npm install
 
-## What technologies are used for this project?
+# Запуск dev-сервера
+npm run dev
+# → http://localhost:8080
+```
 
-This project is built with:
+### 2. ML-бэкенд (для автоопределения точек)
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+```bash
+# Терминал 1 — ML-сервер (нейросеть)
+cd ML
+python ml_server.py
+# → http://127.0.0.1:5000
 
-## How can I deploy this project?
+# Терминал 2 — основной бэкенд (DICOM + проксирование)
+cd Back
+python dicom_to_png.py
+# → http://127.0.0.1:5001
+```
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+> Без запущенного бэкенда приложение работает в режиме ручной расстановки точек.
 
-## Can I connect a custom domain to my Lovable project?
+### 3. Зависимости Python
 
-Yes, you can!
+```bash
+pip install flask flask-cors pydicom pillow numpy tensorflow scikit-learn joblib requests
+```
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+---
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Как пользоваться
+
+### Режим врача (по умолчанию)
+1. Откройте `http://localhost:8080`
+2. Загрузите рентгеновский снимок (кнопка «Загрузить снимок»)
+3. Выберите **автоматически** (кнопка «Определить точки») или **вручную** (кликайте на снимок)
+4. При ручной расстановке ставьте точки в порядке: H₁ → H₂ → A₁ → A₂ → N₁ → N₂
+5. Укажите возраст и пол пациента для персонализированных норм
+6. Результат появится справа автоматически
+
+### Режим обучения (для студентов)
+1. Включите тумблер «Режим обучения» в правой панели
+2. Нажмите «Открыть анализатор точек»
+3. Самостоятельно расставьте точки на снимке
+4. Нажмите «Определить точки» — ИИ покажет правильное расположение для сравнения
+
+---
+
+## Архитектура (MVC)
+
+Подробное описание — в [src/README.md](src/README.md).
+
+```
+View  ←──────────────────────  Controller (useAnalyzer)
+  │   события (клики, файлы)         │
+  └──────────────────────────→       │
+                                  Model (hipAnalysis.ts)
+                                  Service (canvasService.ts)
+                                  Service (mlService.ts)
+```
+
+---
+
+## Медицинская справка
+
+**Метод Хильгенрейнера** — стандартный рентгенологический метод диагностики ДТС у детей.
+
+| Параметр | Норма | Отклонение |
+|---|---|---|
+| Ацетабулярный угол α | 15–28° (зависит от возраста) | > нормы → дисплазия |
+| Дистанция h | 8–12 мм | < 8 мм → краниальное смещение |
+| Дистанция d | 10–15 мм | > 15 мм → латерализация |
+| Линия Перкина | Головка медиально | Латерально → подвывих |
+
+**Степени дисплазии (Tönnis):**
+- **Норма** — все показатели в пределах нормы
+- **I степень (предвывих)** — увеличен угол α, головка центрирована
+- **II степень (подвывих)** — увеличены α и d, h в норме
+- **III степень (вывих)** — увеличены α и d, уменьшена h
+
+> ⚠️ Приложение является вспомогательным инструментом. Окончательный диагноз ставит врач.

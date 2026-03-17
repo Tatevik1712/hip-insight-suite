@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
 import Gallery from "./pages/Gallery.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import AnalysisPage from "./pages/AnalysisPage.tsx";
 
 const queryClient = new QueryClient();
 
@@ -16,6 +17,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/analysis" element={<AnalysisPage />} />
           <Route path="/" element={<Index />} />
           <Route path="/gallery" element={<Gallery />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
