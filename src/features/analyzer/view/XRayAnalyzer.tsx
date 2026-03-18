@@ -6,6 +6,12 @@
  * вводит имя и нажимает "Сохранить работу" — снимок с разметкой
  * и оригинал сохраняются в student_analyses через Flask.
  */
+/**
+-Панель управления параметрами пациента
+-Canvas с плейсхолдером "Загрузите снимок"
+-Блок инструкции по расстановке точек
+-Форма сохранения работы студента */
+
 import React, { useEffect, useRef, useState } from "react";
 import { useAnalyzer } from "../controller/useAnalyzer";
 import { ResultsPanel } from "./ResultsPanel";

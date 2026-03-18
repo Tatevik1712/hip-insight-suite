@@ -115,7 +115,7 @@ export function useAnalyzer(): AnalyzerController {
     [pixelSize]
   );
 
-    /** Загружает новый файл — унифицировано для DICOM и обычных изображений */
+  /** Загружает новый файл — унифицировано для DICOM и обычных изображений */
   const handleImageLoad = useCallback((file: File) => {
     setImageFile(file);
     setAiStatus("idle");

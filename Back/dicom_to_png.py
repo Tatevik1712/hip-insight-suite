@@ -1,3 +1,12 @@
+"""
+dicom_to_png.py — основной бэкенд (порт 5001)
+Отвечает за:
+  • Конвертацию DICOM → PNG
+  • Вызов ML-сервера
+  • Сохранение результатов в PostgreSQL
+  • Отдачу сохранённых изображений (/images/<filename>)
+"""
+
 from flask import Flask, request, send_file, jsonify, send_from_directory
 from flask_cors import CORS
 import pydicom

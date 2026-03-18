@@ -3,6 +3,11 @@
  * @layer Service
  * @description HTTP-клиент для ML-бэкенда (dicom_to_png.py).
  * Теперь используется и в режиме врача, и в режиме обучения.
+ /**
+ * Отправляет файл на Flask (/predict) и возвращает предсказанные точки + base64 PNG.
+ * Работает для обоих режимов (врач и обучение).
+ */
+export async function sendToMLBackend(file: File): Promise<MLPredictResult> { ... }
  */
 import { ML_BACKEND_URL, ML_POINT_KEYS } from "@/constants";
 import type { MLPredictResponse, MLPredictResult, Point } from "@/types";

@@ -182,3 +182,81 @@ export default function SpinePage() { return <SpineAnalyzer />; }
 | **Service** | `services/*.ts` | Изолированная работа с внешним миром |
 | **Constants** | `constants/index.ts` | Нет магических чисел в коде |
 | **Types** | `types/index.ts` | Единственный источник типов |
+
+## Как добавить новую анатомическую зону (пример: колено)
+
+Проект построен по Feature-Sliced Design и позволяет относительно легко расширять набор анализируемых суставов.  
+Ниже — полный пошаговый чек-лист на примере добавления **анализа коленного сустава** (`knee`).
+
+### 1. Подготовка (Backend)
+
+1. **Добавить поддержку новой зоны в `dicom_to_png.py`**  
+   - В эндпоинте `/predict` добавить логику определения зоны (по названию файла, префиксу или отдельному полю).
+   - При необходимости добавить новый маршрут `/predict_knee`.
+
+2. **Обучить/добавить модель для колена**  
+   - Поместить новую модель в папку `ML/models/` (например, `knee_pooler.h5`).
+   - Обновить `ml_server.py`:
+     ```python
+     if zone == "knee":
+         model = load_model("models/knee_pooler.h5")
+         # ... логика предсказания точек для колена
+
+Расширить эндпоинт /save (если нужны специфические поля)
+Добавить новые колонки в таблицу xray_analyses (например, tibial_slope, mechanical_axis и т.д.).
+
+Обновить data.csv (для эталонных точек в режиме обучения)
+Добавить новые строки с разметкой для коленных снимков.
+
+
+
+### 2. Frontend — Feature-Sliced структура
+
+1. **Создать новую feature (рекомендуется)**
+```
+src/features/knee-analyzer/
+├── model/
+├── controller/
+├── view/
+└── index.ts
+```
+2. **Обновить типы (src/types/index.ts)**
+```
+export type AnatomicalZone = "hip" | "knee" | "shoulder";   // добавить "knee"
+export interface KneeAnalysisResult {
+  tibialSlope: number;
+  mechanicalAxisDeviation: number;
+  // ...
+}
+```
+3. **Создать/расширить хук-контроллер**
+   - useKneeAnalyzer.ts (по аналогии с useAnalyzer.ts)
+   - Добавить поддержку новой зоны в useAnalyzer.ts (если хочешь unified хук) или сделать отдельный.
+
+4. **Обновить Canvas-логику (src/services/canvasDraw.ts)**
+   - Добавить функцию drawKneeScene() с нужными линиями и углами для колена.
+
+5. **Создать компоненты представления**
+   - KneeAnalyzer.tsx
+   - KneeResultsPanel.tsx
+   - KneePointProgress.tsx (если нужна другая последовательность точек)
+
+
+
+### 3. Интеграция в приложение
+
+1. **Обновить роутинг (App.tsx или pages/)**
+```
+<Route path="/knee" element={<KneeAnalyzer />} />
+```
+2. **Добавить переключатель зоны (если хочешь unified интерфейс)**
+```tsxconst zones = [
+  { value: "hip", label: "Тазобедренный сустав" },
+  { value: "knee", label: "Коленный сустав" },
+];
+```
+3. **Обновить константы**
+   - src/constants/index.ts → добавить KNEE_POINT_KEYS, KNEE_COLORS, REQUIRED_KNEE_POINTS и т.д.
+
+4. **Обновить сохранение**
+    - Расширить studentRepository.ts и analysisRepository.ts для поддержки новой зоны.
