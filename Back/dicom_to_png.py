@@ -13,12 +13,9 @@ import uuid
 app = Flask(__name__)
 CORS(app)
 
-# ─── Папка для хранения снимков ───────────────────────────────────────────────
-# Снимки сохраняются в Back/uploads/ и отдаются по /images/<filename>
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ─── Подключение к PostgreSQL ─────────────────────────────────────────────────
 DB_CONFIG = {
     "dbname":   "hipdx",
     "user":     os.getenv("DB_USER",     "tatev"),
@@ -30,8 +27,6 @@ DB_CONFIG = {
 def get_db():
     return psycopg2.connect(**DB_CONFIG)
 
-
-# ─── Утилиты ──────────────────────────────────────────────────────────────────
 
 def dicom_to_png(dicom_data):
     ds = pydicom.dcmread(io.BytesIO(dicom_data))
@@ -46,9 +41,20 @@ def dicom_to_png(dicom_data):
     image.save(buf, format='PNG')
     buf.seek(0)
     image_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-    pixel_size = ds.PixelSpacing
-    return {'image': image_base64, 'image_type': 'png',
-            'pixel_size_x': pixel_size[0], 'pixel_size_y': pixel_size[1]}
+
+    # PixelSpacing может отсутствовать — пробуем несколько тегов
+    pixel_size = (
+        getattr(ds, 'PixelSpacing', None) or
+        getattr(ds, 'ImagerPixelSpacing', None) or
+        getattr(ds, 'NominalScannedPixelSpacing', None)
+    )
+
+    result = {'image': image_base64, 'image_type': 'png'}
+    if pixel_size:
+        result['pixel_size_x'] = float(pixel_size[0])
+        result['pixel_size_y'] = float(pixel_size[1])
+
+    return result
 
 
 def imageto_base64(image_file):
@@ -72,22 +78,14 @@ def make_predict(data):
 
 
 def save_image_to_disk(image_base64: str, original_filename: str) -> str:
-    """
-    Сохраняет base64-изображение на диск.
-    Возвращает имя файла (не полный путь).
-    """
     ext      = os.path.splitext(original_filename)[1] or ".png"
     filename = f"{uuid.uuid4().hex}{ext}"
     filepath = os.path.join(UPLOAD_DIR, filename)
-
     img_bytes = base64.b64decode(image_base64)
     with open(filepath, "wb") as f:
         f.write(img_bytes)
-
     return filename
 
-
-# ─── Эндпоинты ────────────────────────────────────────────────────────────────
 
 @app.route('/predict', methods=['POST'])
 def main_point():
@@ -111,24 +109,14 @@ def main_point():
 
 @app.route('/save', methods=['POST'])
 def save_analysis():
-    """
-    Сохраняет данные пациента + снимок в PostgreSQL.
-    Принимает JSON с полем image_base64 — сохраняет файл на диск,
-    в БД пишет URL для доступа к нему.
-    """
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': 'Нет данных'}), 400
 
-        # Сохраняем снимок на диск
         image_url = None
         if data.get("image_base64"):
-            filename  = save_image_to_disk(
-                data["image_base64"],
-                data.get("file_name", "xray.png")
-            )
-            # URL по которому фронтенд получит снимок
+            filename  = save_image_to_disk(data["image_base64"], data.get("file_name", "xray.png"))
             image_url = f"http://127.0.0.1:5001/images/{filename}"
 
         conn = get_db()
@@ -181,13 +169,11 @@ def save_analysis():
 
 @app.route('/images/<filename>')
 def serve_image(filename):
-    """Отдаёт сохранённый снимок по имени файла."""
     return send_from_directory(UPLOAD_DIR, filename)
 
 
 @app.route('/analyses', methods=['GET'])
 def get_analyses():
-    """Возвращает список всех записей для галереи."""
     try:
         patient_id = request.args.get("patient_id", "")
         diagnosis  = request.args.get("diagnosis", "")
@@ -233,11 +219,6 @@ def index():
 
 @app.route('/save-student', methods=['POST'])
 def save_student():
-    """
-    Сохраняет работу студента.
-    Принимает JSON с annotated_base64 и original_base64 —
-    сохраняет оба файла на диск, в БД пишет URL.
-    """
     try:
         data = request.get_json()
         if not data:
@@ -245,7 +226,6 @@ def save_student():
 
         annotated_url = None
         original_url  = None
-
         fname = data.get("file_name", "xray.png")
 
         if data.get("annotated_base64"):
@@ -273,20 +253,20 @@ def save_student():
                 %(ai_angle)s, %(ai_class)s, %(ai_confidence)s
             ) RETURNING id
         """, {
-            "student_name":   data.get("student_name"),
-            "notes":          data.get("notes"),
-            "file_name":      fname,
-            "annotated_url":  annotated_url,
-            "original_url":   original_url,
-            "angle":          data.get("angle"),
-            "distance_h":     data.get("distance_h"),
-            "distance_d":     data.get("distance_d"),
-            "perkins":        data.get("perkins"),
+            "student_name":    data.get("student_name"),
+            "notes":           data.get("notes"),
+            "file_name":       fname,
+            "annotated_url":   annotated_url,
+            "original_url":    original_url,
+            "angle":           data.get("angle"),
+            "distance_h":      data.get("distance_h"),
+            "distance_d":      data.get("distance_d"),
+            "perkins":         data.get("perkins"),
             "dysplasia_level": data.get("dysplasia_level"),
             "dysplasia_stage": data.get("dysplasia_stage"),
-            "ai_angle":       data.get("ai_angle"),
-            "ai_class":       data.get("ai_class"),
-            "ai_confidence":  data.get("ai_confidence"),
+            "ai_angle":        data.get("ai_angle"),
+            "ai_class":        data.get("ai_class"),
+            "ai_confidence":   data.get("ai_confidence"),
         })
 
         record_id = cur.fetchone()[0]
@@ -304,7 +284,6 @@ def save_student():
 
 @app.route('/student-analyses', methods=['GET'])
 def get_student_analyses():
-    """Возвращает список работ студентов для галереи."""
     try:
         conn = get_db()
         cur  = conn.cursor()

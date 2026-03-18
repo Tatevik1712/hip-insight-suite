@@ -121,9 +121,43 @@ export function useAnalyzer(): AnalyzerController {
     setAiStatus("idle");
     setAiError(null);
     setPixelSize(null);
-    const reader = new FileReader();
-    reader.onload = (e) => applyImage(e.target?.result as string);
-    reader.readAsDataURL(file);
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    const isDicom = ext === "dcm" || ext === "dicom";
+
+    if (isDicom) {
+      // DICOM — отправляем на бэкенд для конвертации
+      setAiStatus("loading");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      fetch("http://127.0.0.1:5001/predict", {
+        method: "POST",
+        body: formData,
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) throw new Error(data.error);
+
+          // Сохраняем pixel spacing если есть
+          if (data.pixel_size_x && data.pixel_size_y) {
+            setPixelSize({ x: data.pixel_size_x, y: data.pixel_size_y });
+          }
+
+          // Загружаем сконвертированное изображение
+          applyImage(`data:image/png;base64,${data.image}`);
+          setAiStatus("idle");
+        })
+        .catch(err => {
+          setAiStatus("error");
+          setAiError("Ошибка конвертации DICOM: " + err.message);
+        });
+    } else {
+      // PNG/JPG — читаем напрямую в браузере
+      const reader = new FileReader();
+      reader.onload = (e) => applyImage(e.target?.result as string);
+      reader.readAsDataURL(file);
+    }
   }, [applyImage]);
 
   /** Клик по canvas: добавляет точку, при 6-й запускает расчёт */
