@@ -7,7 +7,7 @@ import Index from "./pages/Index.tsx";
 import Gallery from "./pages/Gallery.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import AnalysisPage from "./pages/AnalysisPage.tsx";
-
+import StudentGallery from "./pages/StudentGallery";
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -20,6 +20,8 @@ const App = () => (
           <Route path="/analysis" element={<AnalysisPage />} />
           <Route path="/" element={<Index />} />
           <Route path="/gallery" element={<Gallery />} />
+          <Route path="/student-gallery" element={<StudentGallery />} />
+
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

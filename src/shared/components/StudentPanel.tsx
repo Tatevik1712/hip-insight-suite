@@ -1,66 +1,57 @@
 /**
  * @file shared/components/StudentPanel.tsx
- * @description Панель обучения студента. Чистый View.
- * onOpenAnalyzer — открывает XRayAnalyzer поверх основного UI.
+ * @description Минимальная панель студенческого режима.
+ * Анализатор открывается автоматически при переключении режима —
+ * эта панель показывается когда пользователь вернулся из анализатора.
  */
-import { Pencil, CheckSquare, RotateCcw, ScanLine } from "lucide-react";
+import React from "react";
+import { GraduationCap, ScanLine, Images } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface Props {
-  onCheck:        () => void;
-  checked:        boolean;
-  onReset:        () => void;
   onOpenAnalyzer: () => void;
 }
 
-const StudentPanel: React.FC<Props> = ({ onCheck, checked, onReset, onOpenAnalyzer }) => (
-  <div className="glass-panel rounded-lg p-4 animate-fade-in">
-    <div className="flex items-center gap-2 mb-3">
-      <Pencil className="w-4 h-4 text-medical-teal" />
-      <h3 className="text-sm font-semibold text-foreground">Режим обучения</h3>
-    </div>
+const StudentPanel: React.FC<Props> = ({ onOpenAnalyzer }) => {
+  const navigate = useNavigate();
 
-    <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-      Расставьте опорные точки на снимке самостоятельно. Нажмите «Проверить» для сравнения с эталоном ИИ.
-    </p>
-
-    {/* Кнопка открытия анализатора */}
-    <button onClick={onOpenAnalyzer}
-      className="w-full flex items-center justify-center gap-2 rounded-md px-3 py-2.5 mb-3 text-xs font-semibold
-                 bg-medical-blue/10 text-medical-blue border border-medical-blue/30 hover:bg-medical-blue/20 transition-all">
-      <ScanLine className="w-3.5 h-3.5" />
-      Открыть анализатор точек
-    </button>
-
-    <div className="flex gap-2">
-      <button onClick={onCheck} disabled={checked}
-        className={`flex-1 flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
-          checked
-            ? "bg-medical-green/20 text-medical-green border border-medical-green/30"
-            : "medical-gradient text-primary-foreground hover:opacity-90"
-        }`}>
-        <CheckSquare className="w-3.5 h-3.5" />
-        {checked ? "Проверено" : "Проверить себя"}
-      </button>
-      <button onClick={onReset}
-        className="flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-xs font-medium bg-secondary text-foreground hover:bg-secondary/80 transition-all">
-        <RotateCcw className="w-3.5 h-3.5" />
-        Сброс
-      </button>
-    </div>
-
-    {checked && (
-      <div className="mt-3 p-3 rounded-md bg-secondary animate-fade-in">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-3 h-0.5 rounded bg-medical-blue" />
-          <span className="text-xs text-muted-foreground">Ваши линии</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 rounded bg-medical-green" style={{ borderTop: "1.5px dashed hsl(142,71%,45%)", height: 0 }} />
-          <span className="text-xs text-muted-foreground">Эталон ИИ</span>
-        </div>
+  return (
+    <div className="glass-panel rounded-lg p-4 animate-fade-in">
+      <div className="flex items-center gap-2 mb-3">
+        <GraduationCap className="w-4 h-4 text-medical-teal" />
+        <h3 className="text-sm font-semibold text-foreground">Режим обучения</h3>
       </div>
-    )}
-  </div>
-);
+
+      <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+        Самостоятельно расставьте анатомические точки на снимке,
+        получите расчёт параметров и сохраните результат.
+      </p>
+
+      <div className="flex flex-col gap-2">
+        {/* Открыть анализатор */}
+        <button
+          onClick={onOpenAnalyzer}
+          className="w-full flex items-center justify-center gap-2 rounded-lg
+                     medical-gradient text-primary-foreground px-4 py-2.5
+                     text-xs font-semibold hover:opacity-90 transition-all active:scale-95"
+        >
+          <ScanLine className="w-3.5 h-3.5" />
+          Открыть анализатор
+        </button>
+
+        {/* Перейти в галерею студента */}
+        <button
+          onClick={() => navigate("/student-gallery")}
+          className="w-full flex items-center justify-center gap-2 rounded-lg
+                     border border-border bg-secondary px-4 py-2.5
+                     text-xs font-medium text-foreground hover:bg-muted transition-all"
+        >
+          <Images className="w-3.5 h-3.5" />
+          Мои работы
+        </button>
+      </div>
+    </div>
+  );
+};
 
 export default StudentPanel;

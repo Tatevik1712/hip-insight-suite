@@ -18,7 +18,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   Activity, Images, X, Sparkles, Loader2,
   AlertCircle, CheckCircle2, Upload, RotateCcw,
-  Database,
+  Database, GraduationCap,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -179,12 +179,18 @@ const Index = () => {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate("/gallery")}
-            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Images className="w-4 h-4" />Галерея
-          </button>
+            <button
+              onClick={() => navigate("/gallery")}
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Images className="w-4 h-4" />Галерея врача
+            </button>
+            <button
+              onClick={() => navigate("/student-gallery")}
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <GraduationCap className="w-4 h-4" />Работы студентов
+            </button>
           <div className="w-2 h-2 rounded-full bg-medical-green animate-pulse-soft" />
         </div>
       </header>
@@ -429,12 +435,7 @@ const Index = () => {
           {studentMode && (
             <>
               <ImageAdjustments filters={filters} onChange={setFilters} />
-              <StudentPanel
-                onCheck={() => setStudentChecked(true)}
-                checked={studentChecked}
-                onReset={() => setStudentChecked(false)}
-                onOpenAnalyzer={() => setAnalyzerOpen(true)}
-              />
+              <StudentPanel onOpenAnalyzer={() => setAnalyzerOpen(true)} />
             </>
           )}
 

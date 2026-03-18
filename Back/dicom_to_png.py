@@ -231,6 +231,104 @@ def index():
     return send_file('index.html')
 
 
+@app.route('/save-student', methods=['POST'])
+def save_student():
+    """
+    Сохраняет работу студента.
+    Принимает JSON с annotated_base64 и original_base64 —
+    сохраняет оба файла на диск, в БД пишет URL.
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Нет данных'}), 400
+
+        annotated_url = None
+        original_url  = None
+
+        fname = data.get("file_name", "xray.png")
+
+        if data.get("annotated_base64"):
+            filename      = save_image_to_disk(data["annotated_base64"], f"annotated_{fname}")
+            annotated_url = f"http://127.0.0.1:5001/images/{filename}"
+
+        if data.get("original_base64"):
+            filename      = save_image_to_disk(data["original_base64"], f"original_{fname}")
+            original_url  = f"http://127.0.0.1:5001/images/{filename}"
+
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO student_analyses (
+                student_name, notes, file_name,
+                annotated_url, original_url,
+                angle, distance_h, distance_d,
+                perkins, dysplasia_level, dysplasia_stage,
+                ai_angle, ai_class, ai_confidence
+            ) VALUES (
+                %(student_name)s, %(notes)s, %(file_name)s,
+                %(annotated_url)s, %(original_url)s,
+                %(angle)s, %(distance_h)s, %(distance_d)s,
+                %(perkins)s, %(dysplasia_level)s, %(dysplasia_stage)s,
+                %(ai_angle)s, %(ai_class)s, %(ai_confidence)s
+            ) RETURNING id
+        """, {
+            "student_name":   data.get("student_name"),
+            "notes":          data.get("notes"),
+            "file_name":      fname,
+            "annotated_url":  annotated_url,
+            "original_url":   original_url,
+            "angle":          data.get("angle"),
+            "distance_h":     data.get("distance_h"),
+            "distance_d":     data.get("distance_d"),
+            "perkins":        data.get("perkins"),
+            "dysplasia_level": data.get("dysplasia_level"),
+            "dysplasia_stage": data.get("dysplasia_stage"),
+            "ai_angle":       data.get("ai_angle"),
+            "ai_class":       data.get("ai_class"),
+            "ai_confidence":  data.get("ai_confidence"),
+        })
+
+        record_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"[save-student] Сохранено id={record_id}")
+        return jsonify({"success": True, "id": record_id})
+
+    except Exception as e:
+        print(f"[save-student] Ошибка: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/student-analyses', methods=['GET'])
+def get_student_analyses():
+    """Возвращает список работ студентов для галереи."""
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+        cur.execute("SELECT * FROM student_analyses ORDER BY created_at DESC")
+        columns = [desc[0] for desc in cur.description]
+        rows    = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        result = []
+        for row in rows:
+            record = dict(zip(columns, row))
+            for key, val in record.items():
+                if hasattr(val, 'isoformat'):
+                    record[key] = val.isoformat()
+            result.append(record)
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"[student-analyses] Ошибка: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     ml_server_url = 'http://127.0.0.1:5000/predict'
     app.run(debug=True, port=5001)
