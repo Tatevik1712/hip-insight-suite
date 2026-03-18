@@ -1,9 +1,8 @@
 /**
  * @file components/PatientCard.tsx
- * @description Карточка пациента — управляемый компонент (controlled).
- *
- * Данные хранятся в родителе (Index.tsx) и передаются через пропсы.
- * Это позволяет Index.tsx читать данные при сохранении в БД.
+ * @description Карточка пациента — только административные данные.
+ * Диагноз намеренно убран отсюда — он заполняется ПОСЛЕ анализа ИИ,
+ * чтобы не навязывать врачу предвзятость до получения результатов.
  */
 import React from "react";
 import { User, FileText, ChevronDown, ChevronUp } from "lucide-react";
@@ -14,21 +13,11 @@ interface Props {
   onChange: (data: PatientData) => void;
 }
 
-// Человекочитаемые названия диагнозов
-const DIAGNOSIS_LABELS: Record<string, string> = {
-  norm:       "Норма",
-  borderline: "Пограничное состояние",
-  grade1:     "Дисплазия I степени (предвывих)",
-  grade2:     "Дисплазия II степени (подвывих)",
-  grade3:     "Дисплазия III степени (вывих)",
-};
-
 const PatientCard: React.FC<Props> = ({ data, onChange }) => {
   const [expanded, setExpanded] = React.useState(true);
 
-  // Универсальный обработчик изменения поля
   const set = (field: keyof PatientData) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       onChange({ ...data, [field]: e.target.value });
 
   const inputCls =
@@ -36,15 +25,8 @@ const PatientCard: React.FC<Props> = ({ data, onChange }) => {
     "placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none " +
     "focus:ring-2 focus:ring-primary/20 transition-colors";
 
-  const diagnosisStatusCls =
-    data.diagnosis === "norm"       ? "status-normal"     :
-    data.diagnosis === "borderline" ? "status-borderline" :
-    data.diagnosis                  ? "status-dysplasia"  : "";
-
   return (
     <div className="glass-panel rounded-lg overflow-hidden">
-
-      {/* Заголовок — кликабельный */}
       <button
         onClick={() => setExpanded(e => !e)}
         className="w-full flex items-center justify-between px-4 py-3 hover:bg-secondary/50 transition-colors"
@@ -60,19 +42,13 @@ const PatientCard: React.FC<Props> = ({ data, onChange }) => {
 
       {expanded && (
         <div className="px-4 pb-4 space-y-3">
-
           {/* ФИО */}
           <div>
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
               ФИО пациента
             </label>
-            <input
-              type="text"
-              placeholder="Иванов Иван Иванович"
-              value={data.fullName}
-              onChange={set("fullName")}
-              className={inputCls}
-            />
+            <input type="text" placeholder="Иванов Иван Иванович"
+              value={data.fullName} onChange={set("fullName")} className={inputCls} />
           </div>
 
           {/* Дата рождения + ID */}
@@ -81,24 +57,15 @@ const PatientCard: React.FC<Props> = ({ data, onChange }) => {
               <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
                 Дата рождения
               </label>
-              <input
-                type="date"
-                value={data.birthDate}
-                onChange={set("birthDate")}
-                className={inputCls}
-              />
+              <input type="date" value={data.birthDate}
+                onChange={set("birthDate")} className={inputCls} />
             </div>
             <div>
               <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
                 ID пациента
               </label>
-              <input
-                type="text"
-                placeholder="DDH-2024-0001"
-                value={data.patientId}
-                onChange={set("patientId")}
-                className={inputCls}
-              />
+              <input type="text" placeholder="DDH-2024-0001"
+                value={data.patientId} onChange={set("patientId")} className={inputCls} />
             </div>
           </div>
 
@@ -107,39 +74,11 @@ const PatientCard: React.FC<Props> = ({ data, onChange }) => {
             <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
               Лечащий врач
             </label>
-            <input
-              type="text"
-              placeholder="Петров П.П."
-              value={data.doctor}
-              onChange={set("doctor")}
-              className={inputCls}
-            />
+            <input type="text" placeholder="Петров П.П."
+              value={data.doctor} onChange={set("doctor")} className={inputCls} />
           </div>
 
           <div className="border-t border-border" />
-
-          {/* Диагноз */}
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
-              Диагноз
-            </label>
-            <select value={data.diagnosis} onChange={set("diagnosis")} className={inputCls}>
-              <option value="">— не указан —</option>
-              <option value="norm">Норма</option>
-              <option value="borderline">Пограничное состояние</option>
-              <option value="grade1">Дисплазия I степени (предвывих)</option>
-              <option value="grade2">Дисплазия II степени (подвывих)</option>
-              <option value="grade3">Дисплазия III степени (вывих)</option>
-            </select>
-          </div>
-
-          {/* Статус диагноза */}
-          {data.diagnosis && (
-            <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold ${diagnosisStatusCls}`}>
-              <span className="w-2 h-2 rounded-full bg-current animate-pulse-soft shrink-0" />
-              {DIAGNOSIS_LABELS[data.diagnosis] ?? data.diagnosis}
-            </div>
-          )}
 
           {/* Заметки */}
           <div>
@@ -147,15 +86,10 @@ const PatientCard: React.FC<Props> = ({ data, onChange }) => {
               <FileText className="w-3 h-3 inline mr-1" />
               Заметки врача
             </label>
-            <textarea
-              rows={3}
-              placeholder="Клинические наблюдения, рекомендации..."
-              value={data.notes}
-              onChange={set("notes")}
-              className={inputCls + " resize-none leading-relaxed"}
-            />
+            <textarea rows={2} placeholder="Клинические наблюдения..."
+              value={data.notes} onChange={set("notes")}
+              className={inputCls + " resize-none leading-relaxed"} />
           </div>
-
         </div>
       )}
     </div>

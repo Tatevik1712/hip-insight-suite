@@ -6,12 +6,17 @@ Flask ML-сервер. Принимает base64 PNG, возвращает:
   - angle:      ацетабулярный угол (градусы)
   - class:      0=норма, 1=патология
   - confidence: уверенность модели (0-100%)
+
+Модель: best_model.h5 (CNN, прямое предсказание координат)
+Скейлер: target_scaler.pkl (StandardScaler для координат)
 """
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import numpy as np
 from PIL import Image
 from tensorflow.keras.models import load_model
+from sklearn.preprocessing import StandardScaler
 import base64
 import io
 import gc
@@ -19,6 +24,7 @@ import math
 import joblib
 
 app = Flask(__name__)
+CORS(app)
 
 
 # ─── Расчёты ──────────────────────────────────────────────────────────────────
@@ -32,7 +38,7 @@ def calc_acetabular_angle(y: list) -> float:
     a1 = (y[4], y[5])
     dx = a1[0] - h1[0]
     dy = a1[1] - h1[1]
-    mag = math.sqrt(dx*dx + dy*dy)
+    mag = math.sqrt(dx * dx + dy * dy)
     if mag == 0:
         return 0.0
     angle = math.degrees(math.acos(max(-1.0, min(1.0, dx / mag))))
@@ -62,7 +68,7 @@ def predict():
     Принимает JSON { input: "<base64 PNG>" }.
     Возвращает:
     {
-      predict: { 1_point: {x, y}, ... 6_point: {x, y} },
+      predict:    { 1_point: {x, y}, ... 6_point: {x, y} },
       angle:      <float>,
       class:      <0|1>,
       confidence: <int 0-100>
@@ -82,12 +88,11 @@ def predict():
         image_array  = np.array(image)
         image_array  = np.expand_dims(image_array, axis=0)
 
-        # Предсказание точек
-        X            = pooler.predict(image_array)          # вектор признаков
-        y_pred_scaled = model.predict(X)                    # нормализованные координаты
-        Y            = scaler_y.inverse_transform(y_pred_scaled)[0]  # реальные координаты
+        # Предсказание координат напрямую через CNN
+        Y = model.predict(image_array)[0]
+        Y = scaler.inverse_transform(Y.reshape(1, -1))[0]
 
-        # Округляем до целых
+        # Округляем до целых пикселей
         Y = [int(round(v)) for v in Y]
 
         # Формируем словарь точек
@@ -101,8 +106,8 @@ def predict():
         }
 
         # Расчёт угла и классификация
-        angle      = calc_acetabular_angle(Y)
-        cls, conf  = classify(angle)
+        angle     = calc_acetabular_angle(Y)
+        cls, conf = classify(angle)
 
         gc.collect()
 
@@ -119,7 +124,6 @@ def predict():
 
 
 if __name__ == '__main__':
-    model    = joblib.load('best_forest.pkl')
-    pooler   = load_model('pooler.h5')
-    scaler_y = joblib.load('scaler_y.pkl')
+    model  = load_model('best_model.h5')
+    scaler = joblib.load('target_scaler.pkl')
     app.run(debug=True, port=5000)

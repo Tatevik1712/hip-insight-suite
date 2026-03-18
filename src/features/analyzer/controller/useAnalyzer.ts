@@ -47,7 +47,7 @@ export interface AnalyzerController {
   handleImageLoad:  (file: File) => void;
   handleCanvasClick:(e: React.MouseEvent<HTMLCanvasElement>) => void;
   handleReset:      () => void;
-  handleAIPredict: () => Promise<AnalysisResult | null>;
+  handleAIPredict: () => Promise<{ result: AnalysisResult; points: Point[] } | null>;
   setAgeMonths:     (v: number) => void;
   setGender:        (v: Gender) => void;
 }
@@ -166,7 +166,8 @@ export function useAnalyzer(): AnalyzerController {
   }, [image, redraw]);
 
   /** Запрос к ML-бэкенду, автоматическая расстановка точек */
-  const handleAIPredict = useCallback(async (): Promise<AnalysisResult | null> => {
+    const handleAIPredict = useCallback(async (): Promise<{ result: AnalysisResult; points: Point[] } | null> => {
+
     if (!imageFile) return null;
     setAiStatus("loading");
     setAiError(null);
@@ -185,7 +186,7 @@ export function useAnalyzer(): AnalyzerController {
       // Считаем результат здесь же и возвращаем — не ждём обновления state
       const analysisResult = runAnalysis(aiPts, ageMonths, gender, pm);
       setAiStatus("success");
-      return analysisResult;
+      return { result: analysisResult, points: aiPts };
     } catch (err) {
       setAiStatus("error");
       setAiError(err instanceof Error ? err.message : "Неизвестная ошибка");

@@ -1,16 +1,13 @@
 /**
  * @file features/viewer/view/DicomViewer.tsx
  * @layer View
- * @description Просмотрщик рентгеновских снимков с зумом и панорамированием.
- *
- * Отображает снимок только если он передан через проп customImage.
- * Без снимка — показывает заглушку с предложением загрузить файл.
- * SVG-оверлей с линиями убран — линии рисуются через canvas в XRayAnalyzer.
+ * @description Просмотрщик снимков с зумом, панорамированием и аннотациями ИИ.
  */
-import React from "react";
+import React, { useRef, useEffect, useCallback } from "react";
 import { Eye, EyeOff, ZoomIn, ZoomOut, RotateCcw, Move, Upload } from "lucide-react";
 import { useViewer } from "../controller/useViewer";
-import type { ImageFilters } from "@/types";
+import { drawScene } from "@/services/canvasDraw";
+import type { ImageFilters, Point } from "@/types";
 
 interface Props {
   showOverlay:      boolean;
@@ -19,32 +16,54 @@ interface Props {
   showStudentCheck: boolean;
   customImage?:     string | null;
   filters:          ImageFilters;
+  aiPoints?:        Point[] | null;
 }
 
 const DicomViewer: React.FC<Props> = ({
-  showOverlay, onToggleOverlay, studentMode, showStudentCheck, customImage, filters,
+  showOverlay, onToggleOverlay, studentMode, showStudentCheck,
+  customImage, filters, aiPoints,
 }) => {
   const v = useViewer();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const cssFilter = `brightness(${filters.brightness}%) contrast(${filters.contrast}%)${filters.invert ? " invert(1)" : ""}`;
+  const hasAiPoints = !!(aiPoints && aiPoints.length === 6);
+  // Показываем canvas с аннотациями когда есть точки И включён оверлей
+  const showCanvas = hasAiPoints && showOverlay;
+
+  const drawAnnotations = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !customImage || !aiPoints || aiPoints.length < 6) return;
+    const img = new Image();
+    img.onload = () => {
+      canvas.width  = img.width;
+      canvas.height = img.height;
+      drawScene(canvas, img, aiPoints);
+    };
+    img.src = customImage;
+  }, [customImage, aiPoints]);
+
+  useEffect(() => {
+    if (showCanvas) drawAnnotations();
+  }, [showCanvas, drawAnnotations]);
 
   return (
     <div className="relative flex-1 bg-viewer-bg rounded-lg overflow-hidden viewer-grid">
 
-      {/* Тулбар слева — только если снимок загружен */}
+      {/* Тулбар слева */}
       {customImage && (
         <div className="absolute top-4 left-4 z-20 flex gap-2">
-          <button
-            onClick={onToggleOverlay}
+          <button onClick={onToggleOverlay}
             className="glass-dark rounded-lg px-3 py-2 flex items-center gap-2 text-xs font-medium transition-all hover:scale-105"
-            style={{ color: showOverlay ? "hsl(174, 72%, 56%)" : "hsla(0,0%,100%,0.5)" }}
-          >
+            style={{ color: showOverlay ? "hsl(174, 72%, 56%)" : "hsla(0,0%,100%,0.5)" }}>
             {showOverlay ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-            Визуализация
+            {hasAiPoints
+              ? showOverlay ? "Скрыть разметку" : "Показать разметку"
+              : "Визуализация"}
           </button>
         </div>
       )}
 
-      {/* Тулбар справа — только если снимок загружен */}
+      {/* Тулбар справа */}
       {customImage && (
         <div className="absolute top-4 right-4 z-20 flex gap-1">
           {([
@@ -77,9 +96,18 @@ const DicomViewer: React.FC<Props> = ({
         </div>
       )}
 
+      {/* Бейдж разметки ИИ */}
+      {showCanvas && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 glass-dark rounded-full px-4 py-1.5
+                        flex items-center gap-2 text-xs font-medium"
+          style={{ color: "hsl(174, 72%, 56%)" }}>
+          <div className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+          Разметка ИИ активна
+        </div>
+      )}
+
       {/* Содержимое */}
       {!customImage ? (
-        /* Заглушка — снимок не загружен */
         <div className="w-full h-full flex flex-col items-center justify-center gap-4 select-none">
           <div className="w-16 h-16 rounded-2xl border-2 border-dashed flex items-center justify-center"
             style={{ borderColor: "hsla(0,0%,100%,0.15)" }}>
@@ -95,7 +123,7 @@ const DicomViewer: React.FC<Props> = ({
           </div>
         </div>
       ) : (
-        /* Снимок с зумом и паном */
+        /* ── Область с зумом и паном — единый контейнер ── */
         <div
           ref={v.containerRef}
           className="w-full h-full flex items-center justify-center select-none"
@@ -106,27 +134,50 @@ const DicomViewer: React.FC<Props> = ({
           onMouseLeave={v.handleMouseUp}
         >
           <div
-            className="relative"
             style={{
               transform: `translate(${v.pan.x}px, ${v.pan.y}px) scale(${v.zoom})`,
               transformOrigin: "center center",
               transition: v.isPanning ? "none" : "transform 0.15s ease-out",
+              position: "relative",
+              display: "inline-block",
             }}
           >
+            {/* Оригинальный снимок */}
             <img
               src={customImage}
-              alt="Рентгенограмма тазобедренных суставов"
-              className="max-h-[calc(100vh-8rem)] w-auto object-contain pointer-events-none"
+              alt="Рентгенограмма"
               draggable={false}
-              style={{ filter: cssFilter, transition: "filter 0.2s ease" }}
+              style={{
+                maxHeight: "calc(100vh - 8rem)",
+                width: "auto",
+                objectFit: "contain",
+                display: showCanvas ? "none" : "block",
+                filter: cssFilter,
+                transition: "filter 0.2s ease",
+                pointerEvents: "none",
+              }}
             />
 
-            {/* Эталонная метка в студенческом режиме после проверки */}
+            {/* Canvas с аннотациями ИИ */}
+            <canvas
+              ref={canvasRef}
+              style={{
+                maxHeight: "calc(100vh - 8rem)",
+                width: "auto",
+                display: showCanvas ? "block" : "none",
+                filter: cssFilter,
+                transition: "filter 0.2s ease",
+                pointerEvents: "none",
+              }}
+            />
+
+            {/* Метка студенческого режима */}
             {studentMode && showStudentCheck && (
               <svg
                 className="absolute inset-0 w-full h-full animate-fade-in"
                 viewBox="0 0 100 100"
                 preserveAspectRatio="none"
+                style={{ pointerEvents: "none" }}
               >
                 <text x="50" y="6" fill="hsl(142,71%,45%)" fontSize="2.5"
                   fontFamily="Inter" textAnchor="middle" opacity="0.8">
