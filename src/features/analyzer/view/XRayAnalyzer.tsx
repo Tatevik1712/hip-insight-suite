@@ -37,40 +37,29 @@ export const XRayAnalyzer: React.FC = () => {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Форма сохранения
-  const [studentName, setStudentName]   = useState("");
-  const [notes,       setNotes]         = useState("");
-  const [saveStatus,  setSaveStatus]    = useState<"idle"|"saving"|"saved"|"error">("idle");
+  const [studentName, setStudentName] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saveStatus, setSaveStatus] = useState<"idle"|"saving"|"saved"|"error">("idle");
 
-  // Ссылка на оригинальный снимок (без разметки) — сохраняем при загрузке
+  // Теперь оригинальный base64 будет приходить из useAnalyzer
   const originalBase64Ref = useRef<string>("");
 
+  // ← НОВОЕ: сохраняем оригинальный PNG после загрузки
   useEffect(() => {
-    const canvas = ctrl.canvasRef.current;
-    if (canvas && !ctrl.image) {
-      canvas.width = 700; canvas.height = 420;
-      drawPlaceholder(canvas);
+    if (ctrl.image && ctrl.image.src.startsWith("data:image/png;base64,")) {
+      originalBase64Ref.current = ctrl.image.src.replace(/^data:image\/\w+;base64,/, "");
     }
-  }, []);
+  }, [ctrl.image]);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Сохраняем оригинальный снимок в base64 до разметки
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const src = ev.target?.result as string;
-      originalBase64Ref.current = src.replace(/^data:image\/\w+;base64,/, "");
-    };
-    reader.readAsDataURL(file);
-
-    ctrl.handleImageLoad(file);
+    ctrl.handleImageLoad(file);        // ← теперь всегда через Flask
     setSaveStatus("idle");
     e.target.value = "";
   };
 
-  // Сохраняем работу студента
   const handleSave = async () => {
     if (!ctrl.result || !ctrl.image) {
       toast({ title: "Расставьте все 6 точек перед сохранением", variant: "destructive" });
@@ -79,7 +68,6 @@ export const XRayAnalyzer: React.FC = () => {
 
     setSaveStatus("saving");
 
-    // Снимок с разметкой — берём текущее состояние canvas
     const canvas = ctrl.canvasRef.current;
     const annotatedBase64 = canvas
       ? canvas.toDataURL("image/png").replace(/^data:image\/\w+;base64,/, "")
@@ -89,12 +77,12 @@ export const XRayAnalyzer: React.FC = () => {
       studentName,
       notes,
       annotatedBase64,
-      originalBase64: originalBase64Ref.current,
-      fileName:       ctrl.imageFile?.name ?? "xray.png",
-      angle:          ctrl.result.angle,
-      distanceH:      ctrl.result.distances.h,
-      distanceD:      ctrl.result.distances.d,
-      perkins:        ctrl.result.perkins,
+      originalBase64: originalBase64Ref.current,   // ← теперь всегда PNG
+      fileName: ctrl.imageFile?.name ?? "xray.png",
+      angle: ctrl.result.angle,
+      distanceH: ctrl.result.distances.h,
+      distanceD: ctrl.result.distances.d,
+      perkins: ctrl.result.perkins,
       dysplasiaLevel: ctrl.result.dysplasia.level,
       dysplasiaStage: ctrl.result.dysplasia.stage,
     });
@@ -104,9 +92,9 @@ export const XRayAnalyzer: React.FC = () => {
       toast({ title: "Работа сохранена", description: `ID: ${id}` });
     } else {
       setSaveStatus("error");
-      toast({ title: "Ошибка сохранения", description: error, variant: "destructive" });
+      toast({ title: "Ошибка сохранения", description: error ?? "Неизвестная ошибка", variant: "destructive" });
     }
-  };
+};
 
   return (
     <div className="min-h-full bg-background p-6">

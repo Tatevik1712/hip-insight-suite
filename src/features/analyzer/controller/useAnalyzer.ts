@@ -115,49 +115,31 @@ export function useAnalyzer(): AnalyzerController {
     [pixelSize]
   );
 
-  /** Загружает новый файл, сбрасывает состояние */
+    /** Загружает новый файл — унифицировано для DICOM и обычных изображений */
   const handleImageLoad = useCallback((file: File) => {
     setImageFile(file);
     setAiStatus("idle");
     setAiError(null);
     setPixelSize(null);
 
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    const isDicom = ext === "dcm" || ext === "dicom";
+    setAiStatus("loading");
 
-    if (isDicom) {
-      // DICOM — отправляем на бэкенд для конвертации
-      setAiStatus("loading");
-      const formData = new FormData();
-      formData.append("file", file);
+    sendToMLBackend(file)
+      .then((data) => {
+        if (data.pixelSizeX && data.pixelSizeY) {
+          setPixelSize({ x: data.pixelSizeX, y: data.pixelSizeY });
+        }
 
-      fetch("http://127.0.0.1:5001/predict", {
-        method: "POST",
-        body: formData,
+        // Используем base64 PNG, который пришёл с сервера
+        applyImage(`data:image/png;base64,${data.imageBase64}`);
+
+        setAiStatus("idle");
       })
-        .then(r => r.json())
-        .then(data => {
-          if (data.error) throw new Error(data.error);
-
-          // Сохраняем pixel spacing если есть
-          if (data.pixel_size_x && data.pixel_size_y) {
-            setPixelSize({ x: data.pixel_size_x, y: data.pixel_size_y });
-          }
-
-          // Загружаем сконвертированное изображение
-          applyImage(`data:image/png;base64,${data.image}`);
-          setAiStatus("idle");
-        })
-        .catch(err => {
-          setAiStatus("error");
-          setAiError("Ошибка конвертации DICOM: " + err.message);
-        });
-    } else {
-      // PNG/JPG — читаем напрямую в браузере
-      const reader = new FileReader();
-      reader.onload = (e) => applyImage(e.target?.result as string);
-      reader.readAsDataURL(file);
-    }
+      .catch((err) => {
+        setAiStatus("error");
+        setAiError(err instanceof Error ? err.message : "Неизвестная ошибка");
+        console.error("handleImageLoad error:", err);
+      });
   }, [applyImage]);
 
   /** Клик по canvas: добавляет точку, при 6-й запускает расчёт */
