@@ -34,6 +34,7 @@ import PatientCard      from "@/components/PatientCard";
 import ImageAdjustments, { type ImageFilters } from "@/components/ImageAdjustments";
 
 import { saveAnalysis, type PatientData } from "@/services/analysisRepository";
+import HelpModal from "@/components/HelpModal";
 import type { Gender, Point } from "@/types";
 
 const EMPTY_PATIENT: PatientData = {
@@ -120,11 +121,13 @@ const Index = () => {
     }
 
     // Запускаем AI — получаем результат напрямую
-    const aiResponse = await analyzer.handleAIPredict();
-    if (!aiResponse) return;
+    const analysisResult = await analyzer.handleAIPredict();
+    if (!analysisResult) return;
 
-    const { result: analysisResult, points: predictedPoints } = aiResponse;
-    setAiPoints(predictedPoints);  // ← точки напрямую, не из state
+    // Сохраняем точки для визуализации на снимке
+    if (analyzer.points && analyzer.points.length === 6) {
+      setAiPoints(analyzer.points as Point[]);
+    }
 
     // Сохраняем в БД
     setSaveStatus("saving");
@@ -189,6 +192,7 @@ const Index = () => {
             className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
             <GraduationCap className="w-4 h-4" />Работы студентов
           </button>
+          <HelpModal />
           <div className="w-2 h-2 rounded-full bg-medical-green animate-pulse-soft" />
         </div>
       </header>
